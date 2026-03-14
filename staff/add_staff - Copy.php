@@ -26,7 +26,6 @@ if (isset($_POST['submit'])) {
     $last_name = mysqli_real_escape_string($conn, $_POST['last_name']);
     $other_name = mysqli_real_escape_string($conn, $_POST['other_name']);
     $sex = mysqli_real_escape_string($conn, $_POST['sex']);
-    $date_of_birth = mysqli_real_escape_string($conn, $_POST['date_of_birth']);
     $staff_phone = mysqli_real_escape_string($conn, $_POST['staff_phone']);
     $id_number = mysqli_real_escape_string($conn, $_POST['id_number']);
     $email = mysqli_real_escape_string($conn, $_POST['email']);
@@ -47,11 +46,11 @@ if (isset($_POST['submit'])) {
 
     // Insert query with all fields
     $insert = "INSERT INTO county_staff (
-        first_name, last_name, other_name, sex, date_of_birth, staff_phone, id_number, email,
+        first_name, last_name, other_name, sex, staff_phone, id_number, email,
         facility_name, county_name, subcounty_name, level_of_care_name,
         department_name, cadre_name, status, staff_status, employment_status, created_by
     ) VALUES (
-        '$first_name', '$last_name', '$other_name', '$sex', '$date_of_birth', '$staff_phone',
+        '$first_name', '$last_name', '$other_name', '$sex', '$staff_phone',
         '$id_number', '$email', '$facility_name',
         '$county_name', '$subcounty_name', '$level_of_care_name',
         '$department_name', '$cadre_name', 'active', '$staff_status_name', '$employment_status_name', '$created_by'
@@ -287,14 +286,6 @@ if (isset($_POST['submit'])) {
                     </div>
 
                     <div class="form-group">
-                        <label>Date of Birth <i>*</i></label>
-                        <input type="date" name="date_of_birth"
-                               value="<?php echo isset($_POST['date_of_birth']) ? htmlspecialchars($_POST['date_of_birth']) : ''; ?>"
-                               max="<?php echo date('Y-m-d', strtotime('-18 years')); ?>"
-                               required>
-                    </div>
-
-                    <div class="form-group">
                         <label>Phone Number</label>
                         <input type="text" name="staff_phone" value="<?php echo isset($_POST['staff_phone']) ? htmlspecialchars($_POST['staff_phone']) : ''; ?>">
                     </div>
@@ -330,7 +321,7 @@ if (isset($_POST['submit'])) {
 
                     <div class="form-group">
                         <label>County</label>
-                        <input type="text" name="county_name" id="county" value="<?php echo isset($_POST['county_name']) ? htmlspecialchars($_POST['county_name']) : ''; ?>" placeholder="Auto-filled or type manually">
+                        <input type="text" name="county_name" id="county" value="<?php echo isset($_POST['county_name']) ? htmlspecialchars($_POST['county_name']) : ''; ?>" readonly>
                     </div>
 
                     <div class="form-group">

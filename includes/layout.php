@@ -253,6 +253,12 @@ if (!$isAllowed) {
                         </a>
                     </div>
                     <div class="nav-item">
+                        <a href="../staff/staff_dashboard.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
+                            <img src="../assets/fontawesome/svgs-full/solid/chart-bar.svg" alt="" width="16" height="16" style="filter:invert(1)">
+                            Employee Dashboard
+                        </a>
+                    </div>
+                    <div class="nav-item">
                         <a href="../staff/employee_profile.php?staff_id=<?php echo isset($_SESSION['staff_id']) ? $_SESSION['staff_id'] : 0; ?>" target="contentFrame" class="nav-link" onclick="handleNavClick()">
                             <img src="../assets/fontawesome/svgs-full/solid/user.svg" alt="" width="16" height="16" style="filter:invert(1)">
                             My Profile
@@ -303,12 +309,7 @@ if (!$isAllowed) {
                             Financial Report
                         </a>
                     </div>
-                    <div class="nav-item">
-                        <a href="../reports/staff_performance.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
-                            <img src="../assets/fontawesome/svgs-full/solid/chart-bar.svg" alt="" width="16" height="16" style="filter:invert(1)">
-                            Staff Performance
-                        </a>
-                    </div>
+
                     <div class="nav-item">
                         <a href="../reports/integration.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
                             <img src="../assets/fontawesome/svgs-full/solid/cloud-upload-alt.svg" alt="" width="16" height="16" style="filter:invert(1)">
