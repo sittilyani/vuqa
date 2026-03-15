@@ -26,7 +26,8 @@ if (isset($_POST['submit'])) {
     $last_name = mysqli_real_escape_string($conn, $_POST['last_name']);
     $other_name = mysqli_real_escape_string($conn, $_POST['other_name']);
     $sex = mysqli_real_escape_string($conn, $_POST['sex']);
-    $date_of_birth = mysqli_real_escape_string($conn, $_POST['date_of_birth']);
+    $date_of_birth   = mysqli_real_escape_string($conn, $_POST['date_of_birth']);
+    $date_of_joining = mysqli_real_escape_string($conn, $_POST['date_of_joining']);
     $staff_phone = mysqli_real_escape_string($conn, $_POST['staff_phone']);
     $id_number = mysqli_real_escape_string($conn, $_POST['id_number']);
     $email = mysqli_real_escape_string($conn, $_POST['email']);
@@ -47,11 +48,11 @@ if (isset($_POST['submit'])) {
 
     // Insert query with all fields
     $insert = "INSERT INTO county_staff (
-        first_name, last_name, other_name, sex, date_of_birth, staff_phone, id_number, email,
+        first_name, last_name, other_name, sex, date_of_birth, date_of_joining, staff_phone, id_number, email,
         facility_name, county_name, subcounty_name, level_of_care_name,
         department_name, cadre_name, status, staff_status, employment_status, created_by
     ) VALUES (
-        '$first_name', '$last_name', '$other_name', '$sex', '$date_of_birth', '$staff_phone',
+        '$first_name', '$last_name', '$other_name', '$sex', '$date_of_birth', '$date_of_joining', '$staff_phone',
         '$id_number', '$email', '$facility_name',
         '$county_name', '$subcounty_name', '$level_of_care_name',
         '$department_name', '$cadre_name', 'active', '$staff_status_name', '$employment_status_name', '$created_by'
@@ -288,13 +289,22 @@ if (isset($_POST['submit'])) {
 
                     <div class="form-group">
                         <label>Date of Birth <i>*</i></label>
-                        <input type="date" name="date_of_birth"
+                        <input type="date" name="date_of_birth" id="date_of_birth"
                                value="<?php echo isset($_POST['date_of_birth']) ? htmlspecialchars($_POST['date_of_birth']) : ''; ?>"
                                max="<?php echo date('Y-m-d', strtotime('-18 years')); ?>"
                                required>
                     </div>
 
-
+                    <div class="form-group">
+                        <label>Date of Joining <i>*</i></label>
+                        <input type="date" name="date_of_joining" id="date_of_joining"
+                               value="<?php echo isset($_POST['date_of_joining']) ? htmlspecialchars($_POST['date_of_joining']) : ''; ?>"
+                               max="<?php echo date('Y-m-d'); ?>"
+                               required>
+                        <small id="doj_hint" style="display:block;margin-top:6px;font-size:12px;color:#888;">
+                            Enter Date of Birth first — joining date must be at least 18 years after birth and not a future date.
+                        </small>
+                    </div>
 
                     <div class="form-group">
                         <label>Phone Number</label>
@@ -425,6 +435,78 @@ if (isset($_POST['submit'])) {
 
     <script>
     $(document).ready(function() {
+
+        // ── Date of Birth → Date of Joining constraint ─────────────────────
+        var today = '<?php echo date('Y-m-d'); ?>';
+
+        function updateDojConstraints() {
+            var dob = $('#date_of_birth').val();
+            if (!dob) {
+                $('#date_of_joining').attr('min', '').attr('max', today);
+                $('#doj_hint').text('Enter Date of Birth first — joining date must be at least 18 years after birth and not a future date.');
+                return;
+            }
+
+            // Calculate min joining date = DOB + 18 years
+            var dobDate   = new Date(dob);
+            var minJoin   = new Date(dobDate);
+            minJoin.setFullYear(minJoin.getFullYear() + 18);
+
+            // Format as YYYY-MM-DD
+            var minJoinStr = minJoin.toISOString().split('T')[0];
+
+            $('#date_of_joining')
+                .attr('min', minJoinStr)
+                .attr('max', today);
+
+            // If a joining date was already selected that now violates the rule, clear it
+            var currentDoj = $('#date_of_joining').val();
+            if (currentDoj && (currentDoj < minJoinStr || currentDoj > today)) {
+                $('#date_of_joining').val('');
+            }
+
+            // Update hint text
+            var minDisplay = minJoin.toLocaleDateString('en-KE', {day:'2-digit', month:'short', year:'numeric'});
+            $('#doj_hint').html(
+                '<span style="color:#0D1A63;font-weight:600">✓ Earliest joining date: ' + minDisplay + '</span>' +
+                ' &nbsp;|&nbsp; Cannot be a future date.'
+            );
+        }
+
+        // Run on DOB change
+        $('#date_of_birth').on('change', function() {
+            updateDojConstraints();
+        });
+
+        // Validate DOJ on change too
+        $('#date_of_joining').on('change', function() {
+            var dob = $('#date_of_birth').val();
+            var doj = $(this).val();
+            if (!dob) {
+                alert('Please enter Date of Birth first.');
+                $(this).val('');
+                return;
+            }
+            var dobDate = new Date(dob);
+            var minJoin = new Date(dobDate);
+            minJoin.setFullYear(minJoin.getFullYear() + 18);
+            var todayDate = new Date(today);
+
+            if (new Date(doj) < minJoin) {
+                alert('Date of Joining must be at least 18 years after Date of Birth.');
+                $(this).val('');
+            } else if (new Date(doj) > todayDate) {
+                alert('Date of Joining cannot be a future date.');
+                $(this).val('');
+            }
+        });
+
+        // On page load, re-apply constraints if DOB was already set (after failed submit)
+        if ($('#date_of_birth').val()) {
+            updateDojConstraints();
+        }
+
+        // ── Facility → County / Subcounty / Level AJAX ─────────────────────
         $('#facility').change(function() {
             var facility_name = $(this).val();
 

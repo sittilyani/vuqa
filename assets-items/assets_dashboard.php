@@ -295,7 +295,7 @@ tr:hover { background:#f8f9fa; }
     <div class="hdr-links">
         <a href="allocate_asset.php"><i class="fas fa-user-tag"></i> Allocate Asset</a>
         <a href="add_asset.php"><i class="fas fa-plus"></i> Add Asset</a>
-        <a href="../staff/staffslist.php"><i class="fas fa-users"></i> Staff</a>
+
     </div>
 </div>
 

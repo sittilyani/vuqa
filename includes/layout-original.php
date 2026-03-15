@@ -220,36 +220,7 @@ if (!$isAllowed) {
                     <?php if ($canAccessDashboard): ?>
                     <div class="nav-item">
                         <a href="../reports/training_dashboard.php" target="contentFrame" class="nav-link" style="background: #FFFF00; color: #000000;" onclick="handleNavClick()">
-                            <i class="fa fa-chart-pie"></i> Training dashboard
-                        </a>
-                    </div>
-                    <div class="nav-item">
-                        <a href="../staff/staff_dashboard.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
-                            <img src="../assets/fontawesome/svgs-full/solid/chart-bar.svg" alt="" width="16" height="16" style="filter:invert(1)">
-                            Employee Dashboard
-                        </a>
-                    </div>
-                    <div class="nav-item">
-                        <a href="../staff/staffslist.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
-                            <img src="../assets/fontawesome/svgs-full/solid/users.svg" alt="" width="16" height="16" style="filter:invert(1)">
-                            Staff settings
-                        </a>
-                    </div>
-                    <div class="nav-item">
-                        <a href="../public/userslist.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
-                            <img src="../assets/fontawesome/svgs-full/solid/user.svg" alt="" width="16" height="16" style="filter:invert(1)">
-                            User Settings
-                        </a>
-                    </div>
-                    <div class="nav-item">
-                        <a href="../admin/admin_settings.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
-                            <img src="../assets/fontawesome/svgs-full/solid/cog.svg" alt="" width="16" height="16" style="filter:invert(1)">
-                            Admin Settings
-                        </a>
-                    </div>
-                    <div class="nav-item">
-                        <a href="../backup/view_backups.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
-                            <i class="fa fa-database"></i> View Backup
+                            <i class="fa fa-chart-pie"></i> Dashboard
                         </a>
                     </div>
                     <?php endif; ?>
@@ -263,11 +234,30 @@ if (!$isAllowed) {
                             <i class="fas fa-chalkboard-teacher"></i> Course Trainings Lists
                         </a>
                     </div>
+
+                    <div class="nav-item">
+                        <a href="../backup/view_backups.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
+                            <i class="fa fa-database"></i> View Backup
+                        </a>
+                    </div>
                 </div>
 
                 <!-- Staff Section -->
                 <div class="nav-section">
                     <div class="nav-section-title">Staff</div>
+                    <div class="nav-item">
+                        <a href="../staff/staff_dashboard.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
+                            <img src="../assets/fontawesome/svgs-full/solid/chart-bar.svg" alt="" width="16" height="16" style="filter:invert(1)">
+                            Employee Dashboard
+                        </a>
+                    </div>
+                    <div class="nav-item">
+                        <a href="../staff/staffslist.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
+                            <img src="../assets/fontawesome/svgs-full/solid/users.svg" alt="" width="16" height="16" style="filter:invert(1)">
+                            View All Staff
+                        </a>
+                    </div>
+
                     <div class="nav-item">
                         <a href="../staff/employee_profile.php?staff_id=<?php echo isset($_SESSION['staff_id']) ? $_SESSION['staff_id'] : 0; ?>" target="contentFrame" class="nav-link" onclick="handleNavClick()">
                             <img src="../assets/fontawesome/svgs-full/solid/user.svg" alt="" width="16" height="16" style="filter:invert(1)">
@@ -314,6 +304,13 @@ if (!$isAllowed) {
                 <div class="nav-section">
                     <div class="nav-section-title">Reports</div>
                     <div class="nav-item">
+                        <a href="../reports/financial_report.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
+                            <img src="../assets/fontawesome/svgs-full/solid/file-invoice-dollar.svg" alt="" width="16" height="16" style="filter:invert(1)">
+                            Financial Report
+                        </a>
+                    </div>
+
+                    <div class="nav-item">
                         <a href="../reports/integration.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
                             <img src="../assets/fontawesome/svgs-full/solid/cloud-upload-alt.svg" alt="" width="16" height="16" style="filter:invert(1)">
                             Integration
@@ -336,6 +333,12 @@ if (!$isAllowed) {
                 <!-- System Section -->
                 <div class="nav-section">
                     <div class="nav-section-title">System</div>
+                    <div class="nav-item">
+                        <a href="../public/userslist.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
+                            <img src="../assets/fontawesome/svgs-full/solid/cog.svg" alt="" width="16" height="16" style="filter:invert(1)">
+                            User Settings
+                        </a>
+                    </div>
                     <div class="nav-item">
                         <a href="../index.php" class="nav-link" onclick="handleNavClick()">
                             <img src="../assets/fontawesome/svgs-full/solid/sign-out.svg" alt="" width="16" height="16" style="filter:invert(1)">

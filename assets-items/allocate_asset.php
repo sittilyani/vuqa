@@ -272,7 +272,7 @@ body { font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif; background:#f0f3
     <div class="hdr-links">
         <a href="assets_dashboard.php"><i class="fas fa-chart-bar"></i> Dashboard</a>
         <a href="add_asset.php"><i class="fas fa-plus"></i> Add Asset</a>
-        <a href="staffslist.php"><i class="fas fa-users"></i> Staff List</a>
+        
     </div>
 </div>
 

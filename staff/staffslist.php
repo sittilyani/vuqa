@@ -272,7 +272,6 @@ $attachment_count = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c
                 <thead>
                     <tr>
                         <th>#</th>
-                        <th>Photo</th>
                         <th>Name</th>
                         <th>ID Number</th>
                         <th>Phone</th>
@@ -295,15 +294,6 @@ $attachment_count = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c
                     ?>
                     <tr>
                         <td><?php echo $counter++; ?></td>
-                        <td>
-                            <?php if(!empty($row['photo'])): ?>
-                                <img src="display_photo.php?staff_id=<?php echo $row['staff_id']; ?>" class="photo-thumb" alt="Photo" onclick="window.open(this.src, '_blank')">
-                            <?php else: ?>
-                                <div class="no-photo">
-                                    <i class="fas fa-user"></i>
-                                </div>
-                            <?php endif; ?>
-                        </td>
                         <td><strong><?php echo htmlspecialchars($row['first_name'] . ' ' . (!empty($row['other_name']) ? $row['other_name'] . ' ' : '') . $row['last_name']); ?></strong></td>
                         <td><?php echo htmlspecialchars($row['id_number']); ?></td>
                         <td><?php echo htmlspecialchars($row['staff_phone'] ?? ''); ?></td>

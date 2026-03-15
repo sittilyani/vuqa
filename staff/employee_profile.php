@@ -1139,7 +1139,7 @@ $full_name = trim($staff['first_name'] . ' ' . $staff['last_name'] . (!empty($st
                                 <tr>
                                     <td><?php echo htmlspecialchars($row['qualification_type']); ?></td>
                                     <td><?php echo htmlspecialchars($row['institution_name']); ?></td>
-                                    <td><?php echo htmlspecialchars($row['course_name']); ?></td>
+                                    <td><?php echo htmlspecialchars($row['qualification_name']); ?></td>
                                     <td><?php echo htmlspecialchars($row['grade']); ?></td>
                                     <td><?php echo $row['award_year']; ?></td>
                                     <td>
@@ -1198,7 +1198,7 @@ $full_name = trim($staff['first_name'] . ' ' . $staff['last_name'] . (!empty($st
                                     <td><?php echo htmlspecialchars($row['department']); ?></td>
                                     <td>
                                         <?php
-                                        echo date('M Y', strtotime($row['start_date'])) . ' – ';
+                                        echo date('M Y', strtotime($row['start_date'])) . '-';
                                         echo $row['is_current'] === 'Yes'
                                             ? 'Present <span class="status-current">Current</span>'
                                             : date('M Y', strtotime($row['end_date']));
