@@ -314,7 +314,7 @@ if (!$isAllowed) {
                         </a>
                     </div>
                     <div class="nav-item">
-                        <a href="../transitions/integration_assessment.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
+                        <a href="../transitions/integration_assessment_list.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
                             <img src="../assets/fontawesome/svgs-full/solid/users.svg" alt="" width="16" height="16" style="filter:invert(1)">
                             Integration Assessment
                         </a>

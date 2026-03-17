@@ -12,13 +12,11 @@ if (!isset($_SESSION['user_id'])) {
 $period   = isset($_GET['period'])   ? mysqli_real_escape_string($conn, $_GET['period'])   : '';
 $county   = isset($_GET['county'])   ? mysqli_real_escape_string($conn, $_GET['county'])   : '';
 $agency   = isset($_GET['agency'])   ? mysqli_real_escape_string($conn, $_GET['agency'])   : '';
-$level_of_care = isset($_GET['level_of_care']) ? mysqli_real_escape_string($conn, $_GET['level_of_care']) : '';
 
 $where = "WHERE 1=1";
 if ($period) $where .= " AND assessment_period = '$period'";
 if ($county) $where .= " AND county_name = '$county'";
 if ($agency) $where .= " AND agency = '$agency'";
-if ($level_of_care) $where .= " AND level_of_care_name = '$level_of_care'";
 
 // -- Filter options ------------------------------------------------------------
 $periods  = [];
@@ -33,10 +31,6 @@ $agencies = [];
 $ar = mysqli_query($conn, "SELECT DISTINCT agency FROM integration_assessments WHERE agency != '' ORDER BY agency");
 if ($ar) while ($r = mysqli_fetch_assoc($ar)) $agencies[] = $r['agency'];
 
-$care_levels = [];
-$clr = mysqli_query($conn, "SELECT DISTINCT level_of_care_name FROM integration_assessments WHERE level_of_care_name != '' ORDER BY level_of_care_name");
-if ($clr) while ($r = mysqli_fetch_assoc($clr)) $care_levels[] = $r['level_of_care_name'];
-
 // -- Helper: Yes/No stats for a field -----------------------------------------
 function yn_stats($conn, $field, $where) {
     $r = mysqli_fetch_assoc(mysqli_query($conn,
@@ -50,31 +44,6 @@ function yn_stats($conn, $field, $where) {
     $no    = (int)$r['no_count'];
     $pct   = $total > 0 ? round($yes / $total * 100) : 0;
     return ['total'=>$total,'yes'=>$yes,'no'=>$no,'pct'=>$pct];
-}
-
-// -- Helper: Yes/No/Not Applicable stats (only for columns that exist) ------
-function yna_stats_safe($conn, $field, $where) {
-    // First check if column exists
-    $check = mysqli_query($conn, "SHOW COLUMNS FROM integration_assessments LIKE '$field'");
-    if (mysqli_num_rows($check) == 0) {
-        return ['total'=>0,'yes'=>0,'no'=>0,'na'=>0,'yes_pct'=>0,'no_pct'=>0,'na_pct'=>0];
-    }
-
-    $r = mysqli_fetch_assoc(mysqli_query($conn,
-        "SELECT
-            COUNT(*) AS total,
-            SUM(CASE WHEN $field='Yes' THEN 1 ELSE 0 END) AS yes_count,
-            SUM(CASE WHEN $field='No'  THEN 1 ELSE 0 END) AS no_count,
-            SUM(CASE WHEN $field='Not Applicable' OR $field='N/A' OR $field='NA' THEN 1 ELSE 0 END) AS na_count
-         FROM integration_assessments $where"));
-    $total = (int)$r['total'];
-    $yes   = (int)$r['yes_count'];
-    $no    = (int)$r['no_count'];
-    $na    = (int)$r['na_count'];
-    $yes_pct = $total > 0 ? round($yes / $total * 100) : 0;
-    $no_pct = $total > 0 ? round($no / $total * 100) : 0;
-    $na_pct = $total > 0 ? round($na / $total * 100) : 0;
-    return ['total'=>$total,'yes'=>$yes,'no'=>$no,'na'=>$na,'yes_pct'=>$yes_pct,'no_pct'=>$no_pct,'na_pct'=>$na_pct];
 }
 
 // -- Summary KPIs -------------------------------------------------------------
@@ -140,122 +109,6 @@ $emr_fields = [
 $s2c = [];
 foreach ($emr_fields as $f => $l) $s2c[$f] = ['label'=>$l] + yn_stats($conn, $f, $where);
 
-// -- EMR Types Analysis (distinct names + percentages) ------------------------
-// First, get all columns from the table to check what exists
-$columns_result = mysqli_query($conn, "SHOW COLUMNS FROM integration_assessments");
-$existing_columns = [];
-while ($col = mysqli_fetch_assoc($columns_result)) {
-    $existing_columns[] = $col['Field'];
-}
-
-// Define all possible EMR columns we want to check
-$emr_type_columns_candidates = [
-    'emr_at_opd' => 'OPD',
-    'emr_opd_other' => 'OPD Other',
-    'emr_at_ipd' => 'IPD',
-    'emr_ipd_other' => 'IPD Other',
-    'emr_at_mnch' => 'MNCH',
-    'emr_mnch_other' => 'MNCH Other',
-    'emr_at_ccc' => 'CCC',
-    'emr_ccc_other' => 'CCC Other',
-    'emr_at_pmtct' => 'PMTCT',
-    'emr_pmtct_other' => 'PMTCT Other',
-    'emr_lab_other' => 'Lab',
-    'emr_at_pharmacy' => 'Pharmacy',
-    'emr_pharmacy_other' => 'Pharmacy Other'
-];
-
-// Filter to only include columns that exist
-$emr_type_columns = [];
-foreach ($emr_type_columns_candidates as $col => $label) {
-    if (in_array($col, $existing_columns)) {
-        $emr_type_columns[$col] = $label;
-    }
-}
-
-$emr_types_data = [];
-
-foreach ($emr_type_columns as $column => $label) {
-    $query = "
-        SELECT
-            $column as emr_type,
-            COUNT(DISTINCT facility_id) as facility_count
-        FROM integration_assessments
-        $where
-        AND $column IS NOT NULL
-        AND $column != ''
-        AND $column NOT IN ('EMR Not Available', 'Yes', 'No', 'N/A', 'NA', 'Not Applicable', 'Other - Specify')
-        AND $column NOT LIKE '%specify%'
-        AND $column NOT LIKE '%other%'
-        GROUP BY $column
-        HAVING facility_count > 0
-        ORDER BY facility_count DESC
-    ";
-
-    $result = mysqli_query($conn, $query);
-    if ($result) {
-        while ($row = mysqli_fetch_assoc($result)) {
-            if (!empty($row['emr_type'])) {
-                $key = $row['emr_type'] . ' (' . $label . ')';
-                $emr_types_data[$key] = [
-                    'count' => $row['facility_count'],
-                    'percentage' => $total_facilities > 0 ? round(($row['facility_count'] / $total_facilities) * 100, 1) : 0,
-                    'department' => $label
-                ];
-            }
-        }
-    }
-}
-arsort($emr_types_data);
-
-// -- Integrated columns analysis (only for columns that exist) ----------------
-$integrated_columns_candidates = [
-    'emr_opd_integrated' => 'OPD Integrated',
-    'emr_ipd_integrated' => 'IPD Integrated',
-    'emr_mnch_integrated' => 'MNCH Integrated',
-    'emr_ccc_integrated' => 'CCC Integrated',
-    'emr_pmtct_integrated' => 'PMTCT Integrated',
-    'emr_lab_integrated' => 'Lab Integrated',
-    'emr_pharmacy_integrated' => 'Pharmacy Integrated'
-];
-
-// Filter to only include columns that exist
-$integrated_columns = [];
-foreach ($integrated_columns_candidates as $col => $label) {
-    if (in_array($col, $existing_columns)) {
-        $integrated_columns[$col] = $label;
-    }
-}
-
-$integrated_data = [];
-foreach ($integrated_columns as $column => $label) {
-    $integrated_data[$column] = ['label' => $label] + yna_stats_safe($conn, $column, $where);
-}
-
-// -- Facilities by Level of Care -----------------------------------------------
-$level_of_care_query = "
-    SELECT
-        level_of_care_name,
-        COUNT(DISTINCT facility_id) as facility_count,
-        COUNT(*) as assessment_count,
-        ROUND(COUNT(DISTINCT facility_id) / ? * 100, 1) as percentage
-    FROM integration_assessments
-    $where
-    AND level_of_care_name IS NOT NULL
-    AND level_of_care_name != ''
-    GROUP BY level_of_care_name
-    ORDER BY facility_count DESC
-";
-
-$stmt = $conn->prepare($level_of_care_query);
-$stmt->bind_param("i", $total_facilities);
-$stmt->execute();
-$level_of_care_results = $stmt->get_result();
-$level_of_care_data = [];
-while ($row = $level_of_care_results->fetch_assoc()) {
-    $level_of_care_data[] = $row;
-}
-
 // Tibu Lite breakdown
 $tibu = mysqli_fetch_assoc(mysqli_query($conn,
     "SELECT
@@ -266,11 +119,11 @@ $tibu = mysqli_fetch_assoc(mysqli_query($conn,
      FROM integration_assessments $where"));
 
 // EMR type distribution from child table
+// Build a separate WHERE for the JOIN query prefixing ia. on filter columns
 $emr_where = "WHERE emr_type != ''";
 if ($period) $emr_where .= " AND ia.assessment_period = '$period'";
 if ($county) $emr_where .= " AND ia.county_name = '$county'";
 if ($agency) $emr_where .= " AND ia.agency = '$agency'";
-if ($level_of_care) $emr_where .= " AND ia.level_of_care_name = '$level_of_care'";
 
 $emr_types = [];
 $etr = mysqli_query($conn,
@@ -288,7 +141,7 @@ $no_emr_data = mysqli_fetch_assoc(mysqli_query($conn,
         SUM(CASE WHEN no_emr_reasons LIKE '%No internet%'    THEN 1 ELSE 0 END) AS net,
         SUM(CASE WHEN no_emr_reasons LIKE '%No electricity%' THEN 1 ELSE 0 END) AS elec,
         SUM(CASE WHEN no_emr_reasons LIKE '%No trained%'     THEN 1 ELSE 0 END) AS staff,
-        SUM(CASE WHEN no_emr_reasons LIKE '%Other%'          THEN 1 ELSE 0 END) AS other_r
+        SUM(CASE WHEN no_emr_reasons LIKE '%Private%'          THEN 1 ELSE 0 END) AS other_r
      FROM integration_assessments $where AND uses_emr='No'"));
 
 // -- Section 3 HRH -------------------------------------------------------------
@@ -383,25 +236,6 @@ $no_emr_vals   = json_encode([
 
 $s456_labels = json_encode(array_values(array_map(fn($v)=>$v['label'], $s456)));
 $s456_pcts   = json_encode(array_values(array_map(fn($v)=>$v['pct'], $s456)));
-
-// EMR types data for charts (only if we have data)
-$emr_type_distinct_labels = !empty($emr_types_data) ? json_encode(array_keys(array_slice($emr_types_data, 0, 15))) : '[]';
-$emr_type_distinct_counts = !empty($emr_types_data) ? json_encode(array_column(array_slice($emr_types_data, 0, 15), 'count')) : '[]';
-$emr_type_distinct_pcts = !empty($emr_types_data) ? json_encode(array_column(array_slice($emr_types_data, 0, 15), 'percentage')) : '[]';
-
-// Level of care data
-$care_level_labels = !empty($level_of_care_data) ? json_encode(array_column($level_of_care_data, 'level_of_care_name')) : '[]';
-$care_level_counts = !empty($level_of_care_data) ? json_encode(array_column($level_of_care_data, 'facility_count')) : '[]';
-$care_level_pcts = !empty($level_of_care_data) ? json_encode(array_column($level_of_care_data, 'percentage')) : '[]';
-
-// Integrated data for charts (only if we have data)
-$integrated_labels = !empty($integrated_data) ? json_encode(array_values(array_map(fn($v)=>$v['label'], $integrated_data))) : '[]';
-$integrated_yes_pcts = !empty($integrated_data) ? json_encode(array_values(array_map(fn($v)=>$v['yes_pct'], $integrated_data))) : '[]';
-$integrated_no_pcts = !empty($integrated_data) ? json_encode(array_values(array_map(fn($v)=>$v['no_pct'], $integrated_data))) : '[]';
-$integrated_na_pcts = !empty($integrated_data) ? json_encode(array_values(array_map(fn($v)=>$v['na_pct'], $integrated_data))) : '[]';
-
-// Check if we have any integrated data to display
-$has_integrated_data = !empty($integrated_data) && array_sum(array_column($integrated_data, 'total')) > 0;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -491,12 +325,6 @@ body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:var(--bg
 .yn-bar-fill{height:100%;border-radius:99px;transition:width 1s cubic-bezier(.4,0,.2,1);}
 .yn-count{font-size:11px;color:var(--muted);width:55px;flex-shrink:0;text-align:right;}
 
-/* Stacked bar for Yes/No/NA */
-.stacked-bar-wrap{display:flex;height:16px;border-radius:99px;overflow:hidden;width:140px;flex-shrink:0;}
-.stacked-yes{background:var(--green);}
-.stacked-no{background:var(--rose);}
-.stacked-na{background:var(--amber);}
-
 /* Colour helpers */
 .fill-green{background:var(--green);}
 .fill-amber{background:var(--amber);}
@@ -545,9 +373,6 @@ body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:var(--bg
 /* Tibu breakdown */
 .tibu-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);}
 .tibu-row:last-child{border-bottom:none;}
-
-/* Empty state */
-.empty-state{padding:30px;text-align:center;color:var(--muted);font-size:14px;}
 
 /* Responsive */
 @media(max-width:1100px){.grid-32,.grid-23{grid-template-columns:1fr;}}
@@ -603,15 +428,6 @@ body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:var(--bg
                 <?php endforeach; ?>
             </select>
         </div>
-        <div class="filter-group">
-            <label>Level of Care</label>
-            <select name="level_of_care">
-                <option value="">All Levels</option>
-                <?php foreach ($care_levels as $cl): ?>
-                <option value="<?= htmlspecialchars($cl) ?>" <?= $level_of_care===$cl?'selected':'' ?>><?= htmlspecialchars($cl) ?></option>
-                <?php endforeach; ?>
-            </select>
-        </div>
         <button type="submit" class="filter-btn"><i class="fas fa-filter"></i> Apply</button>
         <a href="integration_dashboard.php" class="filter-clear"><i class="fas fa-times"></i> Clear</a>
     </div>
@@ -661,46 +477,6 @@ body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:var(--bg
         <div class="kpi-lbl">TA/Mentorship Visits</div>
     </div>
 </div>
-
-<!-- -- Facilities by Level of Care -- -->
-<?php if (!empty($level_of_care_data)): ?>
-<div class="section-label">Facilities by Level of Care</div>
-<div class="grid-2">
-    <div class="card">
-        <div class="card-head"><h3><i class="fas fa-layer-group"></i> Distribution by Care Level</h3></div>
-        <div class="card-body">
-            <div class="chart-wrap" style="height:250px">
-                <canvas id="careLevelChart"></canvas>
-            </div>
-        </div>
-    </div>
-    <div class="card">
-        <div class="card-head"><h3><i class="fas fa-list"></i> Level of Care Breakdown</h3></div>
-        <div class="card-body">
-            <table class="dash-table">
-                <thead>
-                    <tr>
-                        <th>Level of Care</th>
-                        <th>Facilities</th>
-                        <th>Percentage</th>
-                        <th>Assessments</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($level_of_care_data as $level): ?>
-                    <tr>
-                        <td><strong><?= htmlspecialchars($level['level_of_care_name']) ?></strong></td>
-                        <td><?= $level['facility_count'] ?></td>
-                        <td><?= $level['percentage'] ?>%</td>
-                        <td><?= $level['assessment_count'] ?></td>
-                    </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-        </div>
-    </div>
-</div>
-<?php endif; ?>
 
 <!-- -- SECTION 1: FACILITY PROFILE INDICATORS -- -->
 <div class="section-label">Section 1 &mdash; Facility Profile</div>
@@ -824,7 +600,7 @@ body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:var(--bg
             <div class="card-head"><h3><i class="fas fa-database"></i> EMR Systems in Use</h3></div>
             <div class="card-body">
                 <?php if (empty($emr_types)): ?>
-                <p class="empty-state">No EMR data yet</p>
+                <p style="color:var(--muted);font-size:13px;text-align:center;padding:20px 0">No EMR data yet</p>
                 <?php else: ?>
                 <div class="chart-wrap" style="height:180px"><canvas id="emrTypeChart"></canvas></div>
                 <?php endif; ?>
@@ -867,95 +643,6 @@ body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:var(--bg
         <?php endif; ?>
     </div>
 </div>
-
-<!-- -- EMR Types Analysis (Distinct names) -- -->
-<?php if (!empty($emr_types_data)): ?>
-<div class="section-label">EMR Types Analysis</div>
-<div class="grid-2">
-    <div class="card">
-        <div class="card-head"><h3><i class="fas fa-chart-pie"></i> Top EMR Systems by Department</h3></div>
-        <div class="card-body">
-            <div class="chart-wrap" style="height:250px">
-                <canvas id="emrDistinctChart"></canvas>
-            </div>
-        </div>
-    </div>
-    <div class="card">
-        <div class="card-head"><h3><i class="fas fa-list"></i> EMR Systems Detailed List</h3></div>
-        <div class="card-body" style="max-height:300px;overflow-y:auto;">
-            <table class="dash-table">
-                <thead>
-                    <tr>
-                        <th>EMR System</th>
-                        <th>Department</th>
-                        <th>Facilities</th>
-                        <th>%</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php
-                    $count = 0;
-                    foreach ($emr_types_data as $key => $data):
-                        $count++;
-                        if ($count > 20) break;
-                        list($emr, $dept) = explode(' (', $key);
-                        $dept = rtrim($dept, ')');
-                    ?>
-                    <tr>
-                        <td><strong><?= htmlspecialchars($emr) ?></strong></td>
-                        <td><?= htmlspecialchars($dept) ?></td>
-                        <td><?= $data['count'] ?></td>
-                        <td><?= $data['percentage'] ?>%</td>
-                    </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-        </div>
-    </div>
-</div>
-<?php endif; ?>
-
-<!-- -- Integrated EMR Systems Analysis (Yes/No/Not Applicable) -- -->
-<?php if ($has_integrated_data): ?>
-<div class="section-label">Integrated EMR Systems (Yes/No/Not Applicable)</div>
-<div class="card">
-    <div class="card-head"><h3><i class="fas fa-link"></i> Integration Status by Department</h3></div>
-    <div class="card-body">
-        <div class="table-responsive">
-            <table class="dash-table">
-                <thead>
-                    <tr>
-                        <th>Department</th>
-                        <th>Yes (Integrated)</th>
-                        <th>No (Standalone)</th>
-                        <th>Not Applicable</th>
-                        <th>Total</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($integrated_data as $data): ?>
-                    <?php if ($data['total'] > 0): ?>
-                    <tr>
-                        <td><strong><?= htmlspecialchars($data['label']) ?></strong></td>
-                        <td>
-                            <span class="pill pill-green"><?= $data['yes'] ?> (<?= $data['yes_pct'] ?>%)</span>
-                        </td>
-                        <td>
-                            <span class="pill pill-rose"><?= $data['no'] ?> (<?= $data['no_pct'] ?>%)</span>
-                        </td>
-                        <td>
-                            <span class="pill pill-amber"><?= $data['na'] ?> (<?= $data['na_pct'] ?>%)</span>
-                        </td>
-                        <td><?= $data['total'] ?> facilities</td>
-                    </tr>
-                    <?php endif; ?>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-        </div>
-    </div>
-</div>
-<?php endif; ?>
 
 <!-- -- SECTION 3: HRH -- -->
 <div class="section-label">Section 3 &mdash; HRH Transition (Workforce Absorption)</div>
@@ -1083,8 +770,10 @@ body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:var(--bg
             $mort_rows = [
                 ['All-Cause Mortality', $totals['deaths_all']??0,      'rose'],
                 ['HIV Related',         $totals['deaths_hiv']??0,      'amber'],
+                ['HIV — Pre-ART',       $totals['deaths_hiv_pre_art']??0,'purple'],
                 ['TB Related',          $totals['deaths_tb']??0,       'blue'],
                 ['Maternal',            $totals['deaths_maternal']??0,  'teal'],
+                ['Perinatal',           $totals['deaths_perinatal']??0, 'navy'],
             ];
             $max_mort = max(array_column($mort_rows, 1) ?: [1]);
             foreach ($mort_rows as [$lbl,$val,$col]):
@@ -1240,55 +929,6 @@ new Chart(document.getElementById('noEmrChart'), {
         scales: {
             x: { grid:{color:'#f0f0f0'}, ticks:{stepSize:1} },
             y: { grid:{display:false}, ticks:{font:{size:11}} }
-        }
-    }
-});
-<?php endif; ?>
-
-// -- EMR Distinct Types chart -------------------------------------------------
-<?php if (!empty($emr_types_data)): ?>
-new Chart(document.getElementById('emrDistinctChart'), {
-    type: 'bar',
-    data: {
-        labels: <?= $emr_type_distinct_labels ?>,
-        datasets: [{
-            label: 'Number of Facilities',
-            data: <?= $emr_type_distinct_counts ?>,
-            backgroundColor: colourByPct(<?= $emr_type_distinct_pcts ?>),
-            borderRadius: 6, borderSkipped: false
-        }]
-    },
-    options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: {
-            tooltip: { callbacks: { label: c => ` ${c.raw} facilities (${c.raw > 0 ? Math.round(c.raw/<?= $total_facilities ?>*100) : 0}%)` } }
-        },
-        scales: {
-            x: { grid:{display:false}, ticks:{font:{size:10},maxRotation:45} },
-            y: { grid:{color:'#f0f0f0'}, ticks:{stepSize:1} }
-        }
-    }
-});
-<?php endif; ?>
-
-// -- Level of Care chart -------------------------------------------------------
-<?php if (!empty($level_of_care_data)): ?>
-new Chart(document.getElementById('careLevelChart'), {
-    type: 'pie',
-    data: {
-        labels: <?= $care_level_labels ?>,
-        datasets: [{
-            data: <?= $care_level_counts ?>,
-            backgroundColor: [navy, teal, green, amber, purple, blue, rose],
-            borderWidth: 0, hoverOffset: 6
-        }]
-    },
-    options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: {
-            legend: { display: true, position: 'right',
-                labels:{boxWidth:10,font:{size:11},borderRadius:3,useBorderRadius:true} },
-            tooltip: { callbacks: { label: c => ` ${c.label}: ${c.raw} facilities (${c.raw > 0 ? Math.round(c.raw/<?= $total_facilities ?>*100) : 0}%)` } }
         }
     }
 });
