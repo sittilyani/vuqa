@@ -1,12 +1,12 @@
 <?php
 /**
  * @package dompdf
- * @link    https://github.com/dompdf/dompdf
+ * @link    http://dompdf.github.com/
+ * @author  Benj Carson <benjcarson@digitaljunkies.ca>
  * @license http://www.gnu.org/copyleft/lesser.html GNU Lesser General Public License
  */
 namespace Dompdf\Renderer;
 
-use Dompdf\Exception;
 use Dompdf\Frame;
 use Dompdf\FrameDecorator\Table;
 
@@ -17,15 +17,15 @@ use Dompdf\FrameDecorator\Table;
  */
 class TableCell extends Block
 {
+
     /**
      * @param Frame $frame
      */
     function render(Frame $frame)
     {
         $style = $frame->get_style();
-        $node = $frame->get_node();
 
-        if (trim($node->nodeValue) === "" && $style->empty_cells === "hide") {
+        if (trim($frame->get_node()->nodeValue) === "" && $style->empty_cells === "hide") {
             return;
         }
 
@@ -33,9 +33,6 @@ class TableCell extends Block
 
         $border_box = $frame->get_border_box();
         $table = Table::find_parent_table($frame);
-        if ($table === null) {
-            throw new Exception("Parent table not found for table cell");
-        }
 
         if ($table->get_style()->border_collapse !== "collapse") {
             $this->_render_background($frame, $border_box);
@@ -62,9 +59,12 @@ class TableCell extends Block
             $this->_render_outline($frame, $border_box);
         }
 
-        $this->addNamedDest($node);
-        $this->addHyperlink($node, $border_box);
-        $this->debugBlockLayout($frame, "red", false);
+        $id = $frame->get_node()->getAttribute("id");
+        if (strlen($id) > 0) {
+            $this->_canvas->add_named_dest($id);
+        }
+
+        // $this->debugBlockLayout($frame, "red", false);
     }
 
     /**

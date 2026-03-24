@@ -1,13 +1,13 @@
 <?php
 /**
  * @package dompdf
- * @link    https://github.com/dompdf/dompdf
+ * @link    http://dompdf.github.com/
+ * @author  Benj Carson <benjcarson@digitaljunkies.ca>
  * @license http://www.gnu.org/copyleft/lesser.html GNU Lesser General Public License
  */
 namespace Dompdf\FrameDecorator;
 
 use Dompdf\Dompdf;
-use Dompdf\Exception;
 use Dompdf\Helpers;
 use Dompdf\Frame;
 use Dompdf\Renderer;
@@ -15,6 +15,7 @@ use Dompdf\Renderer;
 /**
  * Decorates frames for page layout
  *
+ * @access  private
  * @package dompdf
  */
 class Page extends AbstractFrameDecorator
@@ -169,18 +170,6 @@ class Page extends AbstractFrameDecorator
             return false;
         }
 
-        // If the frame is fixed-position or has a fixed-position parent
-        // ignore the forced page break
-        if ($frame->get_style()->is_absolute()) {
-            return false;
-        }
-        $p = $frame;
-        while ($p = $p->get_parent()) {
-            if ($p->get_style()->position === "fixed") {
-                return false;
-            }
-        }
-
         $page_breaks = ["always", "left", "right"];
         $style = $frame->get_style();
 
@@ -206,7 +195,7 @@ class Page extends AbstractFrameDecorator
             $prev = $prev->get_prev_sibling();
         }
 
-        if ($prev && ($prev->is_block_level() || $prev->get_style()->display === "table-row") && !$prev->get_style()->is_absolute()) {
+        if ($prev && ($prev->is_block_level() || $prev->get_style()->display === "table-row")) {
             if (in_array($prev->get_style()->page_break_after, $page_breaks, true)) {
                 // Prevent cascading splits
                 $frame->split(null, true, true);
@@ -505,10 +494,7 @@ class Page extends AbstractFrameDecorator
                     // Check if the page_break_inside property is not 'avoid'
                     // for the parent table or any of its ancestors
                     $table = Table::find_parent_table($frame);
-                    if ($table === null) {
-                        throw new Exception("Parent table not found for table row");
-                    }
-            
+
                     $p = $table;
                     while ($p) {
                         if ($p->get_style()->page_break_inside === "avoid") {
@@ -715,6 +701,8 @@ class Page extends AbstractFrameDecorator
      * Add a floating frame
      *
      * @param Frame $frame
+     *
+     * @return void
      */
     function add_floating_frame(Frame $frame)
     {

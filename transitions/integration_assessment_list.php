@@ -37,6 +37,10 @@ $date_to     = isset($_GET['date_to']) ? mysqli_real_escape_string($conn, $_GET[
 $art_site    = isset($_GET['art_site']) ? mysqli_real_escape_string($conn, $_GET['art_site']) : '';
 $uses_emr    = isset($_GET['uses_emr']) ? mysqli_real_escape_string($conn, $_GET['uses_emr']) : '';
 
+$leadership = isset($_GET['leadership']) ? mysqli_real_escape_string($conn, $_GET['leadership']) : '';
+$data_integration = isset($_GET['data_integration']) ? mysqli_real_escape_string($conn, $_GET['data_integration']) : '';
+
+
 // Build WHERE clause
 $where = "WHERE 1=1";
 if ($period) $where .= " AND assessment_period = '$period'";
@@ -47,6 +51,8 @@ if ($date_from) $where .= " AND collection_date >= '$date_from'";
 if ($date_to) $where .= " AND collection_date <= '$date_to'";
 if ($art_site) $where .= " AND is_art_site = '$art_site'";
 if ($uses_emr) $where .= " AND uses_emr = '$uses_emr'";
+if ($leadership) $where .= " AND leadership_commitment = '$leadership'";
+if ($data_integration) $where .= " AND data_integration_level = '$data_integration'";
 
 // Pagination
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
@@ -438,6 +444,25 @@ unset($_SESSION['success_msg'], $_SESSION['error_msg']);
                 <?php endwhile; ?>
             </select>
         </div>
+
+        <div class="filter-group">
+            <label>Leadership Commitment</label>
+            <select name="leadership">
+                <option value="">All</option>
+                <option value="High" <?= $leadership == 'High' ? 'selected' : '' ?>>High</option>
+                <option value="Moderate" <?= $leadership == 'Moderate' ? 'selected' : '' ?>>Moderate</option>
+                <option value="Low" <?= $leadership == 'Low' ? 'selected' : '' ?>>Low</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label>Data Integration</label>
+            <select name="data_integration">
+                <option value="">All</option>
+                <option value="Fully Integrated" <?= $data_integration == 'Fully Integrated' ? 'selected' : '' ?>>Fully Integrated</option>
+                <option value="Partial" <?= $data_integration == 'Partial' ? 'selected' : '' ?>>Partial</option>
+                <option value="Fragmented" <?= $data_integration == 'Fragmented' ? 'selected' : '' ?>>Fragmented</option>
+            </select>
+        </div>
         <div class="filter-group">
             <label>From Date</label>
             <input type="date" name="date_from" value="<?= htmlspecialchars($date_from) ?>">
@@ -498,25 +523,25 @@ unset($_SESSION['success_msg'], $_SESSION['error_msg']);
                         <?php while ($row = mysqli_fetch_assoc($assessments)): ?>
                         <tr>
                             <td><strong>#<?= $row['assessment_id'] ?></strong></td>
-                            <td><?= htmlspecialchars($row['assessment_period'] ?? '—') ?></td>
-                            <td><?= htmlspecialchars($row['facility_name'] ?? '—') ?></td>
-                            <td><?= htmlspecialchars($row['mflcode'] ?? '—') ?></td>
-                            <td><?= htmlspecialchars($row['county_name'] ?? '—') ?></td>
-                            <td><?= htmlspecialchars($row['level_of_care_name'] ?? '—') ?></td>
+                            <td><?= htmlspecialchars($row['assessment_period'] ?? 'ï¿½') ?></td>
+                            <td><?= htmlspecialchars($row['facility_name'] ?? 'ï¿½') ?></td>
+                            <td><?= htmlspecialchars($row['mflcode'] ?? 'ï¿½') ?></td>
+                            <td><?= htmlspecialchars($row['county_name'] ?? 'ï¿½') ?></td>
+                            <td><?= htmlspecialchars($row['level_of_care_name'] ?? 'ï¿½') ?></td>
                             <td>
                                 <span class="badge <?= $row['is_art_site'] == 'Yes' ? 'badge-success' : 'badge-danger' ?>">
-                                    <?= $row['is_art_site'] ?? '—' ?>
+                                    <?= $row['is_art_site'] ?? 'ï¿½' ?>
                                 </span>
                             </td>
                             <td>
                                 <span class="badge <?= $row['uses_emr'] == 'Yes' ? 'badge-success' : ($row['uses_emr'] == 'No' ? 'badge-warning' : 'badge-info') ?>">
-                                    <?= $row['uses_emr'] ?? '—' ?>
+                                    <?= $row['uses_emr'] ?? 'ï¿½' ?>
                                 </span>
                             </td>
                             <td><?= number_format($row['tx_curr'] ?? 0) ?></td>
                             <td><?= number_format($row['plhiv_enrolled_sha'] ?? 0) ?></td>
-                            <td><?= htmlspecialchars($row['collected_by'] ?? '—') ?></td>
-                            <td><?= $row['collection_date'] ? date('d M Y', strtotime($row['collection_date'])) : '—' ?></td>
+                            <td><?= htmlspecialchars($row['collected_by'] ?? 'ï¿½') ?></td>
+                            <td><?= $row['collection_date'] ? date('d M Y', strtotime($row['collection_date'])) : 'ï¿½' ?></td>
                             <td class="actions">
                                 <a href="view_integration_assessment.php?id=<?= $row['assessment_id'] ?>" class="btn-icon btn-view" title="View">
                                     <i class="fas fa-eye"></i>

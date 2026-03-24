@@ -67,19 +67,6 @@ $scoring_criteria = [
     0 => ['label' => 'Inadequate structures/functions', 'class' => 'level-0']
 ];
 
-// Create a mapping of indicator codes to database indicator_ids
-$indicator_by_code = [];
-$indicator_query = "
-    SELECT i.indicator_id, i.indicator_code
-    FROM transition_indicators i
-";
-$result = mysqli_query($conn, $indicator_query);
-if ($result) {
-    while ($row = mysqli_fetch_assoc($result)) {
-        $indicator_by_code[$row['indicator_code']] = $row['indicator_id'];
-    }
-}
-
 // Define all sections with their detailed indicators
 $all_sections = [
     'leadership' => [
@@ -864,41 +851,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_section'])) {
                submitted_by='$assessed_by', submitted_at=NOW(),
                sub_count=$saved, avg_cdoh=$avg_c_val, avg_ip=$avg_i_val");
 
-        // Also sync aggregate transition_scores (one row per indicator_id) for backward-compat
-        $indicator_by_code_local = [];
-        $ir = mysqli_query($conn, "SELECT indicator_id, indicator_code FROM transition_indicators");
-        if ($ir) while ($row = mysqli_fetch_assoc($ir))
-            $indicator_by_code_local[$row['indicator_code']] = $row['indicator_id'];
-
-        $ind_agg = mysqli_query($conn,
-            "SELECT indicator_code,
-                    AVG(cdoh_score) avg_c, AVG(ip_score) avg_i
-             FROM transition_raw_scores
-             WHERE assessment_id=$assessment_id AND section_key='$section_key'
-             GROUP BY indicator_code");
-        if ($ind_agg) while ($row = mysqli_fetch_assoc($ind_agg)) {
-            $iid = $indicator_by_code_local[$row['indicator_code']] ?? 0;
-            if (!$iid) continue;
-            $ac = $row['avg_c'] !== null ? round((float)$row['avg_c']) : 'NULL';
-            $ai = $row['avg_i'] !== null ? round((float)$row['avg_i']) : 'NULL';
-            mysqli_query($conn,
-                "INSERT INTO transition_scores (assessment_id, indicator_id, cdoh_score, ip_score)
-                 VALUES ($assessment_id,$iid,$ac,$ai)
-                 ON DUPLICATE KEY UPDATE cdoh_score=$ac, ip_score=$ai");
-        }
-
-        // Recompute overall scores
+        // Mark assessment as draft with updated readiness
         $ov = mysqli_fetch_assoc(mysqli_query($conn,
-            "SELECT AVG(cdoh_score) oc, AVG(ip_score) oi
-             FROM transition_raw_scores WHERE assessment_id=$assessment_id"));
-        $oc = $ov['oc'] !== null ? round((float)$ov['oc']/4*100) : 0;
-        $oi = $ov['oi'] !== null ? round((float)$ov['oi']/4*100) : 0;
+            "SELECT AVG(cdoh_percent) oc, AVG(ip_percent) oi
+             FROM transition_section_submissions WHERE assessment_id=$assessment_id"));
+        $oc = $ov['oc'] !== null ? round((float)$ov['oc']) : 0;
         $rd = $oc>=70?'Transition':($oc>=50?'Support and Monitor':'Not Ready');
         mysqli_query($conn,
-            "UPDATE transition_assessments SET
-             overall_cdoh_score=$oc, overall_ip_score=$oi,
-             overall_gap_score=GREATEST(0,$oi-$oc), overall_overlap_score=LEAST($oc,$oi),
-             readiness_level='$rd', assessment_status='draft'
+            "UPDATE transition_assessments SET assessment_status='draft', readiness_level='$rd'
              WHERE assessment_id=$assessment_id");
 
         mysqli_commit($conn);
@@ -940,10 +900,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_assessment'])) {
             if (!mysqli_query($conn, $update_query)) {
                 throw new Exception("Error updating assessment: " . mysqli_error($conn));
             }
-            // Delete existing scores (aggregate) ? raw scores kept
-            if (!mysqli_query($conn, "DELETE FROM transition_scores WHERE assessment_id = $assessment_id")) {
-                throw new Exception("Error deleting existing scores: " . mysqli_error($conn));
-            }
+            // (transition_scores dropped — raw scores in transition_raw_scores)
         } else {
             $insert_query = "INSERT INTO transition_assessments
                 (county_id, assessment_period, assessment_date, assessed_by, assessment_status)
@@ -954,35 +911,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_assessment'])) {
             $assessment_id = mysqli_insert_id($conn);
         }
 
-        // Save raw + aggregate scores from POST
+        // Save raw scores + upsert section submissions from POST
         $total_cdoh = 0;
         $total_ip = 0;
         $indicator_count = 0;
-
-        // Rebuild indicator_by_code
-        $indicator_by_code = [];
-        $ir2 = mysqli_query($conn, "SELECT indicator_id, indicator_code FROM transition_indicators");
-        if ($ir2) while ($row = mysqli_fetch_assoc($ir2))
-            $indicator_by_code[$row['indicator_code']] = $row['indicator_id'];
+        $section_agg = []; // [section_key => [sum_cdoh,cnt_cdoh,sum_ip,cnt_ip,count]]
 
         foreach ($_POST['scores'] as $composite_key => $scores) {
-            $parts          = explode('_', $composite_key);
-            $sub_code       = end($parts);
-            $ind_code       = preg_replace('/\.\d+$/', '', $sub_code);
-            $section_key_p  = $parts[0] ?? '';
-
-            $indicator_id = $indicator_by_code[$sub_code]
-                ?? $indicator_by_code[$ind_code]
-                ?? 0;
-
-            if (!$indicator_id) {
-                $fr = mysqli_query($conn,
-                    "SELECT indicator_id FROM transition_indicators
-                     WHERE indicator_code='".mysqli_real_escape_string($conn,$sub_code)."' LIMIT 1");
-                if ($fr && mysqli_num_rows($fr) > 0)
-                    $indicator_id = mysqli_fetch_assoc($fr)['indicator_id'];
-                else { error_log("Cannot find indicator: $sub_code"); continue; }
-            }
+            $parts         = explode('_', $composite_key);
+            $sub_code      = end($parts);
+            $ind_code      = preg_replace('/\.\d+$/', '', $sub_code);
+            $section_key_p = $parts[0] ?? '';
 
             $cdoh_score = isset($scores['cdoh']) && $scores['cdoh'] !== '' ? (int)$scores['cdoh'] : null;
             $ip_score   = isset($scores['ip'])   && $scores['ip']   !== '' ? (int)$scores['ip']   : null;
@@ -1008,33 +947,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_assessment'])) {
                    cdoh_score=VALUES(cdoh_score),ip_score=VALUES(ip_score),
                    comments=VALUES(comments),scored_at=NOW()");
 
-            // Save aggregate score
-            $score_query = "INSERT INTO transition_scores
-                (assessment_id, indicator_id, cdoh_score, ip_score, comments)
-                VALUES ($assessment_id, $indicator_id, $cdoh_sql, $ip_sql, '$comments')";
-            if (!mysqli_query($conn, $score_query)) {
-                throw new Exception("Error saving score for $sub_code: " . mysqli_error($conn));
-            }
+            // Accumulate for section submissions upsert
+            if (!isset($section_agg[$section_key_p]))
+                $section_agg[$section_key_p] = ['sum_c'=>0,'cnt_c'=>0,'sum_i'=>0,'cnt_i'=>0,'n'=>0];
+            if ($cdoh_score !== null) { $section_agg[$section_key_p]['sum_c']+=$cdoh_score; $section_agg[$section_key_p]['cnt_c']++; }
+            if ($ip_score   !== null) { $section_agg[$section_key_p]['sum_i']+=$ip_score;   $section_agg[$section_key_p]['cnt_i']++; }
+            $section_agg[$section_key_p]['n']++;
 
             if ($cdoh_score !== null) $total_cdoh += $cdoh_score;
             if ($ip_score   !== null) $total_ip   += $ip_score;
             $indicator_count++;
         }
 
-        $avg_cdoh = $indicator_count > 0 ? round(($total_cdoh / ($indicator_count * 4)) * 100) : 0;
-        $avg_ip   = $indicator_count > 0 ? round(($total_ip   / ($indicator_count * 4)) * 100) : 0;
+        // Upsert section_submissions for each section found in POST
+        $period_safe   = mysqli_real_escape_string($conn, $period);
+        $assessed_safe = mysqli_real_escape_string($conn, $assessed_by);
+        foreach ($section_agg as $sk_p => $agg) {
+            $sk_p_safe  = mysqli_real_escape_string($conn, $sk_p);
+            $avg_c_full = $agg['cnt_c'] > 0 ? round($agg['sum_c']/$agg['cnt_c'], 2) : 'NULL';
+            $avg_i_full = $agg['cnt_i'] > 0 ? round($agg['sum_i']/$agg['cnt_i'], 2) : 'NULL';
+            mysqli_query($conn,
+                "INSERT INTO transition_section_submissions
+                 (assessment_id, county_id, assessment_period, section_key,
+                  submitted_by, sub_count, avg_cdoh, avg_ip)
+                 VALUES ($assessment_id,$county_id,'$period_safe','$sk_p_safe',
+                         '$assessed_safe',{$agg['n']},$avg_c_full,$avg_i_full)
+                 ON DUPLICATE KEY UPDATE
+                   county_id=$county_id, assessment_period='$period_safe',
+                   submitted_by='$assessed_safe', submitted_at=NOW(),
+                   sub_count={$agg['n']}, avg_cdoh=$avg_c_full, avg_ip=$avg_i_full");
+        }
+
+        $avg_cdoh  = $indicator_count > 0 ? round(($total_cdoh / ($indicator_count * 4)) * 100) : 0;
+        $avg_ip    = $indicator_count > 0 ? round(($total_ip   / ($indicator_count * 4)) * 100) : 0;
         $readiness = $avg_cdoh >= 70 ? 'Transition' : ($avg_cdoh >= 50 ? 'Support and Monitor' : 'Not Ready');
 
-        $update_overall = "UPDATE transition_assessments SET
-            overall_cdoh_score = $avg_cdoh,
-            overall_ip_score = $avg_ip,
-            overall_gap_score = GREATEST(0, $avg_ip - $avg_cdoh),
-            overall_overlap_score = LEAST($avg_cdoh, $avg_ip),
-            readiness_level = '$readiness',
-            assessment_status = 'submitted'
-            WHERE assessment_id = $assessment_id";
-        if (!mysqli_query($conn, $update_overall)) {
-            throw new Exception("Error updating overall scores: " . mysqli_error($conn));
+        // Mark assessment as submitted (scores live in transition_section_submissions)
+        if (!mysqli_query($conn,
+            "UPDATE transition_assessments SET
+             assessment_status='submitted', readiness_level='$readiness'
+             WHERE assessment_id=$assessment_id")) {
+            throw new Exception("Error updating assessment status: " . mysqli_error($conn));
         }
 
         mysqli_commit($conn);
@@ -1594,7 +1547,7 @@ $assessment_id_js = (int)$assessment_id;
                         <?php elseif (preg_match('/^IO/', array_key_first($section['indicators']))): ?>
                         <span class="ip-badge yes">CDOH + IP</span>
                         <?php else: ?>
-                        <span class="ip-badge" style="background:#e0e8ff;color:#0D1A63;">A=IP · B=CDOH</span>
+                        <span class="ip-badge" style="background:#e0e8ff;color:#0D1A63;">A=IP ? B=CDOH</span>
                         <?php endif; ?>
                     </div>
                     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">

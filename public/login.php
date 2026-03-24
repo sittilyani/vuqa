@@ -104,95 +104,305 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - HPTU LMIS</title>
+    <title>Login - </title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        /* Base Page Setup */
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        /* ---------- RESET & GLOBAL ---------- */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #3F10CB;
+            font-family: 'Segoe UI', 'Roboto', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #2c0b8e 0%, #3F10CB 100%);
+            height: 100vh;
             display: flex;
             flex-direction: column;
-            min-height: 100vh;
-            padding-bottom: 60px; /* Space to prevent footer from covering form content */
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            padding: 2rem 1rem 90px 1rem;  /* bottom padding prevents footer overlap */
         }
 
-        /* Login Container Styling */
+        /* ---------- MAIN CARD (FULLY RESPONSIVE) ---------- */
         .login-container {
-            background: white;
-            padding: 40px;
-            border-radius: 12px;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
-            width: 480px;
-            max-width: 60%;
-            margin: auto; /* Centers the form vertically and horizontally */
+            background: rgba(255, 255, 255, 0.98);
+            backdrop-filter: blur(0px);
+            padding: 2rem 2rem 2.2rem;
+            border-radius: 32px;
+            box-shadow: 0 25px 45px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(255,255,255,0.1);
+            width: 100%;
+            max-width: 500px;
+            margin: 1rem auto;
             text-align: center;
+            transition: all 0.3s ease;
         }
 
+        /* responsive inner spacing */
+        @media (max-width: 550px) {
+            .login-container {
+                padding: 1.5rem 1.2rem 1.8rem;
+                border-radius: 28px;
+                max-width: 94%;
+            }
+        }
+
+        @media (max-width: 420px) {
+            .login-container {
+                padding: 1.2rem 1rem 1.5rem;
+            }
+        }
+
+        /* logo image - fluid & touch-friendly */
         .login-container img {
-            width: 120px;
-            margin-bottom: 20px;
+            width: clamp(85px, 28vw, 130px);
+            height: auto;
+            margin-bottom: 1rem;
+            object-fit: contain;
+            filter: drop-shadow(0 4px 6px rgba(0,0,0,0.05));
         }
 
-        /* STICKY FOOTER STYLING */
+        .login-container h2 {
+            font-size: clamp(1.6rem, 6vw, 2.2rem);
+            font-weight: 700;
+            color: #1e2a3e;
+            margin-bottom: 0.25rem;
+            letter-spacing: -0.3px;
+        }
+
+        .login-container p {
+            color: #5a6874;
+            font-size: clamp(0.85rem, 3.5vw, 1rem);
+            margin-bottom: 1.5rem;
+        }
+
+        /* error message styling */
+        .error-message {
+            background-color: #ffe9e9;
+            color: #c7362b;
+            padding: 0.75rem 1rem;
+            border-radius: 60px;
+            font-size: 0.85rem;
+            margin-bottom: 1.5rem;
+            border-left: 4px solid #e74c3c;
+            text-align: left;
+            font-weight: 500;
+            word-break: break-word;
+        }
+
+        /* form groups */
+        .form-group {
+            margin-bottom: 1.5rem;
+            text-align: left;
+        }
+
+        .form-group label {
+            font-weight: 600;
+            font-size: 0.85rem;
+            color: #2c3e50;
+            display: block;
+            margin-bottom: 0.4rem;
+            letter-spacing: 0.3px;
+        }
+
+        .input-icon {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        .input-icon i {
+            position: absolute;
+            left: 14px;
+            color: #8e9aaf;
+            font-size: 1rem;
+            pointer-events: none;
+        }
+
+        input {
+            width: 100%;
+            padding: 0.85rem 1rem 0.85rem 2.5rem;
+            border: 1.5px solid #e2e8f0;
+            border-radius: 50px;
+            font-size: 1rem;
+            transition: all 0.2s;
+            background: #fff;
+            outline: none;
+            font-family: inherit;
+        }
+
+        input:focus {
+            border-color: #4361ee;
+            box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.2);
+        }
+
+        /* button */
+        .btn-submit {
+            width: 100%;
+            padding: 0.9rem;
+            background: #4361ee;
+            color: white;
+            border: none;
+            border-radius: 50px;
+            font-weight: 700;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.25s;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            box-shadow: 0 8px 14px rgba(67, 97, 238, 0.25);
+            margin-top: 0.3rem;
+        }
+
+        .btn-submit:hover {
+            background: #2c3fcf;
+            transform: translateY(-2px);
+            box-shadow: 0 12px 20px rgba(67, 97, 238, 0.35);
+        }
+
+        .btn-submit:active {
+            transform: translateY(1px);
+        }
+
+        /* register info */
+        .register {
+            margin-top: 1.8rem;
+            padding-top: 0.8rem;
+            border-top: 1px solid #edf2f7;
+        }
+
+        .register p {
+            font-size: 0.85rem;
+            color: #4a5b6e;
+            margin-bottom: 0;
+        }
+
+        /* ---------- STICKY FOOTER - FULLY RESPONSIVE, TOUCH OPTIMIZED ---------- */
         .footer {
             position: fixed;
             bottom: 0;
             left: 0;
-            height: 8%;
-            width: 100%; /* Spans 100% device width */
-            background-color: #ffffff;
-            border-top: 1px solid #e0e0e0;
-            padding: 33px 20px;
-            z-index: 9999;
-            box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
+            width: 100%;
+            background: #ffffff;
+            border-top: 1px solid rgba(0, 0, 0, 0.08);
+            padding: 0.9rem 1.5rem;
+            z-index: 1000;
+            box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.03);
+            backdrop-filter: blur(0px);
         }
 
         .footer-content {
-            max-width: 1200px;
+            max-width: 1280px;
             margin: 0 auto;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            flex-wrap: wrap; /* Helps on very small screens */
-            gap: 10px;
+            flex-wrap: wrap;
+            gap: 0.75rem 1rem;
         }
 
         .footer-text {
-            font-size: 18px;
-            color: #666;
+            font-size: clamp(0.7rem, 3vw, 0.85rem);
+            color: #4a5568;
+            line-height: 1.4;
             flex: 1;
+            text-align: left;
         }
 
         .social-links {
             display: flex;
-            gap: 15px;
+            gap: 1rem;
+            flex-wrap: wrap;
+            align-items: center;
         }
 
         .social-links a {
             color: #4361ee;
-            font-size: 20px;
-            transition: transform 0.2s ease;
+            font-size: 1.2rem;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: #f0f4fe;
+            text-decoration: none;
         }
 
         .social-links a:hover {
-            transform: scale(1.2);
-            color: #011f88;
+            transform: translateY(-3px);
+            background: #e0e8ff;
+            color: #1e2fcf;
         }
 
-        /* Form Inputs */
-        .form-group { margin-bottom: 20px; text-align: left; }
-        input { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 6px; margin-top: 5px; }
-        .btn-submit {
-            width: 100%; padding: 12px; background: #4361ee; color: white; border: none;
-            border-radius: 6px; font-weight: bold; cursor: pointer;
+        /* adjust footer for very small devices */
+        @media (max-width: 640px) {
+            .footer {
+                padding: 0.7rem 1rem;
+            }
+            .footer-content {
+                flex-direction: column;
+                text-align: center;
+                gap: 0.5rem;
+            }
+            .footer-text {
+                text-align: center;
+                order: 2;
+            }
+            .social-links {
+                order: 1;
+                justify-content: center;
+            }
+            .social-links a {
+                width: 36px;
+                height: 36px;
+                font-size: 1.1rem;
+            }
         }
 
-        @media (max-width: 600px) {
-            .footer-content { justify-content: center; text-align: center; }
-            .footer-text { margin-bottom: 5px; }
+        /* prevent body content hidden under footer */
+        @media (max-width: 480px) {
+            body {
+                padding-bottom: 100px;
+            }
+            .btn-submit {
+                padding: 0.8rem;
+            }
+        }
+
+        /* additional smoothness for larger screens but compact */
+        @media (min-width: 1400px) {
+            .login-container {
+                max-width: 520px;
+            }
+            .footer-content {
+                max-width: 1400px;
+            }
+        }
+
+        /* accessibility & touch targets */
+        button, a, input {
+            touch-action: manipulation;
+        }
+
+        /* animation */
+        .login-container {
+            animation: fadeSlideUp 0.5s ease-out;
+        }
+        @keyframes fadeSlideUp {
+            0% {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            100% {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
     </style>
 </head>
@@ -200,7 +410,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     <div class="login-container">
 
-        <img src="../assets/images/TaitaLogo.png" width="102" height="102" alt="">
+        <img src="../assets/images/Logo-round-nobg-2.png" width="102" height="102" alt="">
         <h2>Welcome Back</h2>
         <p style="color: #666; margin-bottom: 25px;">Please login to your account</p>
 
@@ -220,7 +430,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <button type="submit" class="btn-submit">
                 <i class="fas fa-sign-in-alt"></i> Login
             </button>
-            
+
             <div class="register" style="margin-top: 20px;">
                 <p>Not registered Yet? Please contact the administrator</p>
             </div>

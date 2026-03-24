@@ -1,9 +1,12 @@
 <?php
 /**
  * @package dompdf
- * @link    https://github.com/dompdf/dompdf
+ * @link    http://dompdf.github.com/
+ * @author  Benj Carson <benjcarson@digitaljunkies.ca>
+ * @author  Fabien Ménager <fabien.menager@gmail.com>
  * @license http://www.gnu.org/copyleft/lesser.html GNU Lesser General Public License
  */
+
 namespace Dompdf\Positioner;
 
 use Dompdf\FrameDecorator\AbstractFrameDecorator;

@@ -560,10 +560,16 @@ if(empty($rec))$rec[]='Proceed with full integration';
             </div>
         </div>
     </div>
-
     <div class="actions-bar">
-        <a href="edit_integration_assessment.php?id=<?= $id ?>" class="btn btn-primary"><i class="fas fa-edit"></i> Edit Assessment</a>
-        <a href="integration_assessment_list.php" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back to List</a>
+        <a href="integration_workplan.php?id=<?= $id ?>" class="btn btn-primary" style="background: #28a745;">
+            <i class="fas fa-robot"></i> Generate AI Report
+        </a>
+        <a href="edit_integration_assessment.php?id=<?= $id ?>" class="btn btn-primary">
+            <i class="fas fa-edit"></i> Edit Assessment
+        </a>
+        <a href="integration_assessment_list.php" class="btn btn-secondary">
+            <i class="fas fa-arrow-left"></i> Back to List
+        </a>
     </div>
 </div>
 </body>

@@ -558,9 +558,9 @@ for ($i = 1; $i <= 11; $i++) {
                 <div class="level-selector">
                     <div style="font-weight: 700; margin-bottom: 10px;">Level of County Legislature Leadership and Governance:</div>
                     <div class="level-options">
-                        <div class="level-option low" id="levelLow" onclick="setLevel('Low')">0–13: Low</div>
-                        <div class="level-option medium" id="levelMedium" onclick="setLevel('Medium')">14–28: Medium</div>
-                        <div class="level-option high" id="levelHigh" onclick="setLevel('High')">29–43: High</div>
+                        <div class="level-option low" id="levelLow" onclick="setLevel('Low')">0ï¿½13: Low</div>
+                        <div class="level-option medium" id="levelMedium" onclick="setLevel('Medium')">14ï¿½28: Medium</div>
+                        <div class="level-option high" id="levelHigh" onclick="setLevel('High')">29ï¿½43: High</div>
                         <div class="level-option full" id="levelFull" onclick="setLevel('Full Performance')">44: Full Performance</div>
                     </div>
                     <input type="hidden" name="level_t1" id="levelInput" value="">

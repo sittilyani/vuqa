@@ -1,7 +1,9 @@
 <?php
 /**
  * @package dompdf
- * @link    https://github.com/dompdf/dompdf
+ * @link    http://dompdf.github.com/
+ * @author  Benj Carson <benjcarson@digitaljunkies.ca>
+ * @author  Helmut Tischer <htischer@weihenstephan.org>
  * @license http://www.gnu.org/copyleft/lesser.html GNU Lesser General Public License
  */
 namespace Dompdf\Renderer;
@@ -9,12 +11,12 @@ namespace Dompdf\Renderer;
 use Dompdf\Helpers;
 use Dompdf\Frame;
 use Dompdf\FrameDecorator\ListBullet as ListBulletFrameDecorator;
-use Dompdf\FrameDecorator\ListBulletImage;
 use Dompdf\Image\Cache;
 
 /**
  * Renders list bullets
  *
+ * @access  private
  * @package dompdf
  */
 class ListBullet extends AbstractRenderer
@@ -22,7 +24,6 @@ class ListBullet extends AbstractRenderer
     /**
      * @param $type
      * @return mixed|string
-     * @deprecated
      */
     static function get_counter_chars($type)
     {
@@ -36,22 +37,26 @@ class ListBullet extends AbstractRenderer
         $text = "";
 
         switch ($type) {
-            default:
-            case "decimal":
             case "decimal-leading-zero":
+            case "decimal":
+            case "1":
                 return "0123456789";
 
             case "upper-alpha":
             case "upper-latin":
+            case "A":
                 $uppercase = true;
             case "lower-alpha":
             case "lower-latin":
+            case "a":
                 $text = "abcdefghijklmnopqrstuvwxyz";
                 break;
 
             case "upper-roman":
+            case "I":
                 $uppercase = true;
             case "lower-roman":
+            case "i":
                 $text = "ivxlcdm";
                 break;
 
@@ -70,20 +75,22 @@ class ListBullet extends AbstractRenderer
     }
 
     /**
-     * @param int      $n
-     * @param string   $type
+     * @param int $n
+     * @param string $type
      * @param int|null $pad
      *
      * @return string
      */
-    private function make_counter(int $n, string $type, ?int $pad = null): string
+    private function make_counter($n, $type, $pad = null)
     {
+        $n = intval($n);
         $text = "";
+        $uppercase = false;
 
         switch ($type) {
-            default:
-            case "decimal":
             case "decimal-leading-zero":
+            case "decimal":
+            case "1":
                 if ($pad) {
                     $text = str_pad($n, $pad, "0", STR_PAD_LEFT);
                 } else {
@@ -93,25 +100,29 @@ class ListBullet extends AbstractRenderer
 
             case "upper-alpha":
             case "upper-latin":
-                $text = strtoupper(Helpers::dec2base26($n));
-                break;
-
+            case "A":
+                $uppercase = true;
             case "lower-alpha":
             case "lower-latin":
-                $text = Helpers::dec2base26($n);
+            case "a":
+                $text = chr((($n - 1) % 26) + ord('a'));
                 break;
 
             case "upper-roman":
-                $text = strtoupper(Helpers::dec2roman($n));
-                break;
-
+            case "I":
+                $uppercase = true;
             case "lower-roman":
+            case "i":
                 $text = Helpers::dec2roman($n);
                 break;
 
             case "lower-greek":
                 $text = Helpers::unichr($n + 944);
                 break;
+        }
+
+        if ($uppercase) {
+            $text = strtoupper($text);
         }
 
         return "$text.";
@@ -138,7 +149,7 @@ class ListBullet extends AbstractRenderer
 
         // Handle list-style-image
         // If list style image is requested but missing, fall back to predefined types
-        if ($frame instanceof ListBulletImage && !Cache::is_broken($img = $frame->get_image_url())) {
+        if ($style->list_style_image !== "none" && !Cache::is_broken($img = $frame->get_image_url())) {
             [$x, $y] = $frame->get_position();
             $w = $frame->get_width();
             $h = $frame->get_height();
@@ -149,6 +160,7 @@ class ListBullet extends AbstractRenderer
             $bullet_style = $style->list_style_type;
 
             switch ($bullet_style) {
+                default:
                 case "disc":
                 case "circle":
                     [$x, $y] = $frame->get_position();
@@ -168,9 +180,8 @@ class ListBullet extends AbstractRenderer
                     $this->_canvas->filled_rectangle($x, $y, $w, $w, $style->color);
                     break;
 
-                default:
-                case "decimal":
                 case "decimal-leading-zero":
+                case "decimal":
                 case "lower-alpha":
                 case "lower-latin":
                 case "lower-roman":
@@ -178,6 +189,11 @@ class ListBullet extends AbstractRenderer
                 case "upper-alpha":
                 case "upper-latin":
                 case "upper-roman":
+                case "1": // HTML 4.0 compatibility
+                case "a":
+                case "i":
+                case "A":
+                case "I":
                     $pad = null;
                     if ($bullet_style === "decimal-leading-zero") {
                         $pad = strlen($li->get_parent()->get_node()->getAttribute("dompdf-children-count"));
@@ -189,8 +205,12 @@ class ListBullet extends AbstractRenderer
                         return;
                     }
 
-                    $index = (int) $node->getAttribute("dompdf-counter");
+                    $index = $node->getAttribute("dompdf-counter");
                     $text = $this->make_counter($index, $bullet_style, $pad);
+
+                    if (trim($text) === "") {
+                        return;
+                    }
 
                     $word_spacing = $style->word_spacing;
                     $letter_spacing = $style->letter_spacing;
@@ -203,11 +223,15 @@ class ListBullet extends AbstractRenderer
                     $this->_canvas->text($x, $y, $text,
                         $font_family, $font_size,
                         $style->color, $word_spacing, $letter_spacing);
-                    break;
 
                 case "none":
                     break;
             }
+        }
+
+        $id = $frame->get_node()->getAttribute("id");
+        if (strlen($id) > 0) {
+            $this->_canvas->add_named_dest($id);
         }
     }
 }

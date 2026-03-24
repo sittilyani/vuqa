@@ -118,6 +118,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_assessment']))
         deaths_tb = {$i($_POST['deaths_tb'] ?? '')},
         deaths_maternal = {$i($_POST['deaths_maternal'] ?? '')},
         deaths_perinatal = {$i($_POST['deaths_perinatal'] ?? '')},
+        leadership_commitment = '{$e($_POST['leadership_commitment'] ?? '')}',
+        transition_plan = '{$e($_POST['transition_plan'] ?? '')}',
+        hiv_in_awp = '{$e($_POST['hiv_in_awp'] ?? '')}',
+        hrh_gap = '{$e($_POST['hrh_gap'] ?? '')}',
+        staff_multiskilled = '{$e($_POST['staff_multiskilled'] ?? '')}',
+        roving_staff = '{$e($_POST['roving_staff'] ?? '')}',
+        infrastructure_capacity = '{$e($_POST['infrastructure_capacity'] ?? '')}',
+        space_adequacy = '{$e($_POST['space_adequacy'] ?? '')}',
+        service_delivery_without_ccc = '{$e($_POST['service_delivery_without_ccc'] ?? '')}',
+        avg_wait_time = '{$e($_POST['avg_wait_time'] ?? '')}',
+        data_integration_level = '{$e($_POST['data_integration_level'] ?? '')}',
+        financing_coverage = '{$e($_POST['financing_coverage'] ?? '')}',
+        disruption_risk = '{$e($_POST['disruption_risk'] ?? '')}',
+        integration_barriers = '{$e($_POST['integration_barriers'] ?? '')}',
         collected_by = '{$e($_POST['collected_by'] ?? '')}',
         collection_date = '{$e($_POST['collection_date'] ?? date('Y-m-d'))}'
         WHERE assessment_id = $id";
@@ -880,6 +894,157 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_assessment']))
                         <input type="number" name="<?= $field ?>" class="form-control" value="<?= $assessment[$field] ?? 0 ?>">
                     </div>
                     <?php endforeach; ?>
+                </div>
+            </div>
+        </div>
+
+        <!-- Section 8: Integration Readiness & Sustainability (NEW) -->
+        <div class="form-section">
+            <div class="section-head"><i class="fas fa-project-diagram"></i> Section 8: Integration Readiness & Sustainability</div>
+            <div class="section-body">
+                <div class="form-grid">
+                    <!-- Leadership -->
+                    <div class="form-group">
+                        <label>Q86. Leadership commitment to HIV integration</label>
+                        <select name="leadership_commitment" class="form-control">
+                            <option value="">Select</option>
+                            <option value="High" <?= ($assessment['leadership_commitment'] ?? '') == 'High' ? 'selected' : '' ?>>High</option>
+                            <option value="Moderate" <?= ($assessment['leadership_commitment'] ?? '') == 'Moderate' ? 'selected' : '' ?>>Moderate</option>
+                            <option value="Low" <?= ($assessment['leadership_commitment'] ?? '') == 'Low' ? 'selected' : '' ?>>Low</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Q87. Is there a transition/integration plan?</label>
+                        <select name="transition_plan" class="form-control">
+                            <option value="">Select</option>
+                            <option value="Yes - Implemented" <?= ($assessment['transition_plan'] ?? '') == 'Yes - Implemented' ? 'selected' : '' ?>>Yes - Implemented</option>
+                            <option value="Yes - Not Implemented" <?= ($assessment['transition_plan'] ?? '') == 'Yes - Not Implemented' ? 'selected' : '' ?>>Yes - Not Implemented</option>
+                            <option value="No" <?= ($assessment['transition_plan'] ?? '') == 'No' ? 'selected' : '' ?>>No</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Q88. HIV services included in AWP/Budget?</label>
+                        <select name="hiv_in_awp" class="form-control">
+                            <option value="">Select</option>
+                            <option value="Fully" <?= ($assessment['hiv_in_awp'] ?? '') == 'Fully' ? 'selected' : '' ?>>Fully</option>
+                            <option value="Partially" <?= ($assessment['hiv_in_awp'] ?? '') == 'Partially' ? 'selected' : '' ?>>Partially</option>
+                            <option value="No" <?= ($assessment['hiv_in_awp'] ?? '') == 'No' ? 'selected' : '' ?>>No</option>
+                        </select>
+                    </div>
+
+                    <!-- HR -->
+                    <div class="form-group">
+                        <label>Q89. Estimated HRH gap (%)</label>
+                        <select name="hrh_gap" class="form-control">
+                            <option value="">Select</option>
+                            <option value="0-10%" <?= ($assessment['hrh_gap'] ?? '') == '0-10%' ? 'selected' : '' ?>>0-10%</option>
+                            <option value="10-30%" <?= ($assessment['hrh_gap'] ?? '') == '10-30%' ? 'selected' : '' ?>>10-30%</option>
+                            <option value=">30%" <?= ($assessment['hrh_gap'] ?? '') == '>30%' ? 'selected' : '' ?>>&gt;30%</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Q90. Are staff multi-skilled?</label>
+                        <select name="staff_multiskilled" class="form-control">
+                            <option value="">Select</option>
+                            <option value="Yes" <?= ($assessment['staff_multiskilled'] ?? '') == 'Yes' ? 'selected' : '' ?>>Yes</option>
+                            <option value="Partial" <?= ($assessment['staff_multiskilled'] ?? '') == 'Partial' ? 'selected' : '' ?>>Partial</option>
+                            <option value="No" <?= ($assessment['staff_multiskilled'] ?? '') == 'No' ? 'selected' : '' ?>>No</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Q91. Is there roving/visiting HIV/TB staff?</label>
+                        <select name="roving_staff" class="form-control">
+                            <option value="">Select</option>
+                            <option value="Yes - Regular" <?= ($assessment['roving_staff'] ?? '') == 'Yes - Regular' ? 'selected' : '' ?>>Yes - Regular</option>
+                            <option value="Yes - Irregular" <?= ($assessment['roving_staff'] ?? '') == 'Yes - Irregular' ? 'selected' : '' ?>>Yes - Irregular</option>
+                            <option value="No" <?= ($assessment['roving_staff'] ?? '') == 'No' ? 'selected' : '' ?>>No</option>
+                        </select>
+                    </div>
+
+                    <!-- Infrastructure -->
+                    <div class="form-group">
+                        <label>Q92. Infrastructure capacity for integration</label>
+                        <select name="infrastructure_capacity" class="form-control">
+                            <option value="">Select</option>
+                            <option value="Adequate" <?= ($assessment['infrastructure_capacity'] ?? '') == 'Adequate' ? 'selected' : '' ?>>Adequate</option>
+                            <option value="Minor changes needed" <?= ($assessment['infrastructure_capacity'] ?? '') == 'Minor changes needed' ? 'selected' : '' ?>>Minor changes needed</option>
+                            <option value="Major redesign needed" <?= ($assessment['infrastructure_capacity'] ?? '') == 'Major redesign needed' ? 'selected' : '' ?>>Major redesign needed</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Q93. Space adequacy</label>
+                        <select name="space_adequacy" class="form-control">
+                            <option value="">Select</option>
+                            <option value="Adequate" <?= ($assessment['space_adequacy'] ?? '') == 'Adequate' ? 'selected' : '' ?>>Adequate</option>
+                            <option value="Congested" <?= ($assessment['space_adequacy'] ?? '') == 'Congested' ? 'selected' : '' ?>>Congested</option>
+                            <option value="Severely Inadequate" <?= ($assessment['space_adequacy'] ?? '') == 'Severely Inadequate' ? 'selected' : '' ?>>Severely Inadequate</option>
+                        </select>
+                    </div>
+
+                    <!-- Service -->
+                    <div class="form-group">
+                        <label>Q94. Can HIV services run without CCC?</label>
+                        <select name="service_delivery_without_ccc" class="form-control">
+                            <option value="">Select</option>
+                            <option value="Yes" <?= ($assessment['service_delivery_without_ccc'] ?? '') == 'Yes' ? 'selected' : '' ?>>Yes</option>
+                            <option value="Partially" <?= ($assessment['service_delivery_without_ccc'] ?? '') == 'Partially' ? 'selected' : '' ?>>Partially</option>
+                            <option value="No" <?= ($assessment['service_delivery_without_ccc'] ?? '') == 'No' ? 'selected' : '' ?>>No</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Q95. Average patient waiting time</label>
+                        <select name="avg_wait_time" class="form-control">
+                            <option value="">Select</option>
+                            <option value="<1 hour" <?= ($assessment['avg_wait_time'] ?? '') == '<1 hour' ? 'selected' : '' ?>><1 hour</option>
+                            <option value="1-3 hours" <?= ($assessment['avg_wait_time'] ?? '') == '1-3 hours' ? 'selected' : '' ?>>1-3 hours</option>
+                            <option value=">3 hours" <?= ($assessment['avg_wait_time'] ?? '') == '>3 hours' ? 'selected' : '' ?>> >3 hours</option>
+                        </select>
+                    </div>
+
+                    <!-- Data -->
+                    <div class="form-group">
+                        <label>Q96. Data integration level</label>
+                        <select name="data_integration_level" class="form-control">
+                            <option value="">Select</option>
+                            <option value="Fully Integrated" <?= ($assessment['data_integration_level'] ?? '') == 'Fully Integrated' ? 'selected' : '' ?>>Fully Integrated</option>
+                            <option value="Partial" <?= ($assessment['data_integration_level'] ?? '') == 'Partial' ? 'selected' : '' ?>>Partial</option>
+                            <option value="Fragmented" <?= ($assessment['data_integration_level'] ?? '') == 'Fragmented' ? 'selected' : '' ?>>Fragmented</option>
+                        </select>
+                    </div>
+
+                    <!-- Finance -->
+                    <div class="form-group">
+                        <label>Q97. Financing coverage for HIV services</label>
+                        <select name="financing_coverage" class="form-control">
+                            <option value="">Select</option>
+                            <option value="High" <?= ($assessment['financing_coverage'] ?? '') == 'High' ? 'selected' : '' ?>>High</option>
+                            <option value="Moderate" <?= ($assessment['financing_coverage'] ?? '') == 'Moderate' ? 'selected' : '' ?>>Moderate</option>
+                            <option value="Low" <?= ($assessment['financing_coverage'] ?? '') == 'Low' ? 'selected' : '' ?>>Low</option>
+                        </select>
+                    </div>
+
+                    <!-- Risk -->
+                    <div class="form-group">
+                        <label>Q98. Risk of service disruption</label>
+                        <select name="disruption_risk" class="form-control">
+                            <option value="">Select</option>
+                            <option value="Low" <?= ($assessment['disruption_risk'] ?? '') == 'Low' ? 'selected' : '' ?>>Low</option>
+                            <option value="Moderate" <?= ($assessment['disruption_risk'] ?? '') == 'Moderate' ? 'selected' : '' ?>>Moderate</option>
+                            <option value="High" <?= ($assessment['disruption_risk'] ?? '') == 'High' ? 'selected' : '' ?>>High</option>
+                        </select>
+                    </div>
+
+                    <!-- Open -->
+                    <div class="form-group full">
+                        <label>Q99. Key barriers to integration</label>
+                        <textarea name="integration_barriers" class="form-control" rows="4"><?= htmlspecialchars($assessment['integration_barriers'] ?? '') ?></textarea>
+                    </div>
                 </div>
             </div>
         </div>

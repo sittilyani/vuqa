@@ -1,7 +1,9 @@
 <?php
 /**
  * @package dompdf
- * @link    https://github.com/dompdf/dompdf
+ * @link    http://dompdf.github.com/
+ * @author  Benj Carson <benjcarson@digitaljunkies.ca>
+ * @author  Fabien Ménager <fabien.menager@gmail.com>
  * @license http://www.gnu.org/copyleft/lesser.html GNU Lesser General Public License
  */
 namespace Dompdf\Css;
@@ -167,14 +169,14 @@ class AttributeTranslator
         'ol' => [
             'compact' => 'margin: 0.5em 0;',
             'start' => 'counter-reset: -dompdf-default-counter %d;',
-            'type' => '_set_list_style_type',
+            'type' => 'list-style-type: %s;',
         ],
         'ul' => [
             'compact' => 'margin: 0.5em 0;',
-            'type' => '_set_list_style_type',
+            'type' => 'list-style-type: %s;',
         ],
         'li' => [
-            'type' => '_set_list_style_type',
+            'type' => 'list-style-type: %s;',
             'value' => 'counter-reset: -dompdf-default-counter %d;',
         ],
         'pre' => [
@@ -503,7 +505,7 @@ class AttributeTranslator
             $width = "100%";
         }
 
-        $remainder = 100 - (float)rtrim($width, "% ");
+        $remainder = 100 - (double)rtrim($width, "% ");
 
         switch ($value) {
             case "left":
@@ -648,33 +650,5 @@ class AttributeTranslator
         }
 
         return ltrim($style, "; ");
-    }
-
-    protected static function _set_list_style_type(\DOMElement $node, string $value): string
-    {
-        $v = trim($value);
-
-        switch ($v) {
-            case "1":
-                $type = "decimal";
-                break;
-            case "a":
-                $type = "lower-alpha";
-                break;
-            case "A":
-                $type = "upper-alpha";
-                break;
-            case "i":
-                $type = "lower-roman";
-                break;
-            case "I":
-                $type = "upper-roman";
-                break;
-            default:
-                $type = $v;
-                break;
-        }
-
-        return "list-style-type: $type;";
     }
 }

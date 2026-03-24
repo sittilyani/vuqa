@@ -218,35 +218,15 @@ if (!$isAllowed) {
                 <div class="nav-section">
                     <div class="nav-section-title">Admin</div>
                     <?php if ($canAccessDashboard): ?>
-                    <div class="nav-item">
-                        <a href="../reports/training_dashboard.php" target="contentFrame" class="nav-link" style="background: #FFFF00; color: #000000;" onclick="handleNavClick()">
-                            <i class="fa fa-chart-pie"></i> Training dashboard
-                        </a>
-                    </div>
+
                     <div class="nav-item">
                         <a href="../staff/staff_dashboard.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
                             <img src="../assets/fontawesome/svgs-full/solid/chart-bar.svg" alt="" width="16" height="16" style="filter:invert(1)">
                             Employee Dashboard
                         </a>
                     </div>
-                    <div class="nav-item">
-                        <a href="../trainings/training_dashboard.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
-                            <img src="../assets/fontawesome/svgs-full/solid/tasks.svg" alt="" width="16" height="16" style="filter:invert(1)">
-                            TNA Dashboard
-                        </a>
-                    </div>
-                    <div class="nav-item">
-                        <a href="../transitions/integration_dashboard.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
-                            <img src="../assets/fontawesome/svgs-full/solid/tasks.svg" alt="" width="16" height="16" style="filter:invert(1)">
-                            Integration Dashboard
-                        </a>
-                    </div>
-                    <div class="nav-item">
-                        <a href="../transitions/integration_comparison_dashboard.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
-                            <img src="../assets/fontawesome/svgs-full/solid/tasks.svg" alt="" width="16" height="16" style="filter:invert(1)">
-                            Integration Comparison Dashboard
-                        </a>
-                    </div>
+
+
                     <div class="nav-item">
                         <a href="../staff/staffslist.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
                             <img src="../assets/fontawesome/svgs-full/solid/users.svg" alt="" width="16" height="16" style="filter:invert(1)">
@@ -271,19 +251,10 @@ if (!$isAllowed) {
                         </a>
                     </div>
                     <?php endif; ?>
-                    <div class="nav-item">
-                        <a href="../trainings/view_staff_trainings.php" target="contentFrame" class="nav-link" style="background: #80FF80; color: #000000;" onclick="handleNavClick()">
-                            <i class="fas fa-chalkboard-teacher"></i> View Completed Trainings
-                        </a>
-                    </div>
-                    <div class="nav-item">
-                        <a href="../trainings/training_list.php" target="contentFrame" class="nav-link" style="background: #80FF80; color: #000000;" onclick="handleNavClick()">
-                            <i class="fas fa-chalkboard-teacher"></i> Course Trainings Lists
-                        </a>
-                    </div>
+
                 </div>
 
-                <!-- Staff Section -->
+                <!-- integration Section -->
                 <div class="nav-section">
                     <div class="nav-section-title">Integration</div>
                     <div class="nav-item">
@@ -293,14 +264,61 @@ if (!$isAllowed) {
                         </a>
                     </div>
                     <div class="nav-item">
+                        <a href="../transitions/integration_dashboard.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
+                            <img src="../assets/fontawesome/svgs-full/solid/tasks.svg" alt="" width="16" height="16" style="filter:invert(1)">
+                            Integration Dashboard
+                        </a>
+                    </div>
+                    <div class="nav-item">
+                        <a href="../transitions/integration_comparison_dashboard.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
+                            <img src="../assets/fontawesome/svgs-full/solid/tasks.svg" alt="" width="16" height="16" style="filter:invert(1)">
+                            Integration Comparison Dashboard
+                        </a>
+                    </div>
+                    <div class="nav-item">
+                        <a href="../transitions/integration_workplan.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
+                            <img src="../assets/fontawesome/svgs-full/solid/tasks.svg" alt="" width="16" height="16" style="filter:invert(1)">
+                            Integration Workplan
+                        </a>
+                    </div>
+
+                </div>
+                <!-- integration Section -->
+                <div class="nav-section">
+                    <div class="nav-section-title">Transition</div>
+                    <div class="nav-item">
                         <a href="../transitions/transition_index.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
                             <img src="../assets/fontawesome/svgs-full/solid/unlock.svg" alt="" width="16" height="16" style="filter:invert(1)">
                             Transition Assessment
                         </a>
                     </div>
+                    <div class="nav-item">
+                        <a href="../transitions/transition_dashboard.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
+                            <img src="../assets/fontawesome/svgs-full/solid/exchange-alt.svg" alt="" width="16" height="16" style="filter:invert(1)">
+                            Transition Dashboard
+                        </a>
+                    </div>
+                    <div class="nav-item">
+                        <a href="../transitions/transition_comparison_dashboard.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
+                            <img src="../assets/fontawesome/svgs-full/solid/tasks.svg" alt="" width="16" height="16" style="filter:invert(1)">
+                            Transition Comparison Dashboard
+                        </a>
+                    </div>
+                    <div class="nav-item">
+                        <a href="../transitions/transition_workplan.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
+                            <img src="../assets/fontawesome/svgs-full/solid/tasks.svg" alt="" width="16" height="16" style="filter:invert(1)">
+                            Transition Workplan
+                        </a>
+                    </div>
                 </div>
                 <div class="nav-section">
                     <div class="nav-section-title">Trainings</div>
+                    <div class="nav-item">
+                        <a href="../trainings/training_dashboard.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
+                            <img src="../assets/fontawesome/svgs-full/solid/tasks.svg" alt="" width="16" height="16" style="filter:invert(1)">
+                            TNA Dashboard
+                        </a>
+                    </div>
                     <div class="nav-item">
                         <a href="../trainings/view_training.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
                             <img src="../assets/fontawesome/svgs-full/solid/users.svg" alt="" width="16" height="16" style="filter:invert(1)">
@@ -308,7 +326,17 @@ if (!$isAllowed) {
                         </a>
                     </div>
                     <div class="nav-item">
-                        <a href="../trainings/training_registration.php" target="contentFrame" class="nav-link" style="background: #80FF80; color: #000000;" onclick="handleNavClick()">
+                        <a href="../trainings/view_staff_trainings.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
+                            <i class="fas fa-chalkboard-teacher"></i> View Completed Trainings
+                        </a>
+                    </div>
+                    <div class="nav-item">
+                        <a href="../trainings/training_list.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
+                            <i class="fas fa-chalkboard-teacher"></i> Course Trainings Lists
+                        </a>
+                    </div>
+                    <div class="nav-item">
+                        <a href="../trainings/training_registration.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
                             <img src="../assets/fontawesome/svgs-full/solid/users.svg" alt="" width="16" height="16" style="filter:invert(1)">
                             Participants Registration
                         </a>
@@ -327,7 +355,7 @@ if (!$isAllowed) {
                     </div>
 
                     <div class="nav-item">
-                        <a href="../trainings/staff_training_form.php" target="contentFrame" class="nav-link" style="background: #80FF80; color: #000000;" onclick="handleNavClick()">
+                        <a href="../trainings/staff_training_form.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
                             <img src="../assets/fontawesome/svgs-full/solid/users.svg" alt="" width="16" height="16" style="filter:invert(1)">
                             Self staff trainings update
                         </a>
@@ -337,19 +365,7 @@ if (!$isAllowed) {
 
                 <!-- Reports Section -->
                 <div class="nav-section">
-                    <div class="nav-section-title">Reports</div>
-                    <div class="nav-item">
-                        <a href="../reports/integration.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
-                            <img src="../assets/fontawesome/svgs-full/solid/cloud-upload-alt.svg" alt="" width="16" height="16" style="filter:invert(1)">
-                            Integration
-                        </a>
-                    </div>
-                    <div class="nav-item">
-                        <a href="../reports/transition.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
-                            <img src="../assets/fontawesome/svgs-full/solid/exchange-alt.svg" alt="" width="16" height="16" style="filter:invert(1)">
-                            Transition
-                        </a>
-                    </div>
+                    <div class="nav-section-title">Assets</div>
                     <div class="nav-item">
                         <a href="../assets-items/assets_dashboard.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
                             <img src="../assets/fontawesome/svgs-full/solid/box.svg" alt="" width="16" height="16" style="filter:invert(1)">

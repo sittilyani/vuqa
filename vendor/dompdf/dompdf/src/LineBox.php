@@ -1,7 +1,8 @@
 <?php
 /**
  * @package dompdf
- * @link    https://github.com/dompdf/dompdf
+ * @link    http://dompdf.github.com/
+ * @author  Fabien Ménager <fabien.menager@gmail.com>
  * @license http://www.gnu.org/copyleft/lesser.html GNU Lesser General Public License
  */
 namespace Dompdf;
@@ -12,7 +13,6 @@ use Dompdf\FrameDecorator\ListBullet;
 use Dompdf\FrameDecorator\Page;
 use Dompdf\FrameReflower\Text as TextFrameReflower;
 use Dompdf\Positioner\Inline as InlinePositioner;
-use Iterator;
 
 /**
  * The line box class
@@ -24,6 +24,7 @@ use Iterator;
  */
 class LineBox
 {
+
     /**
      * @var Block
      */
@@ -47,7 +48,7 @@ class LineBox
     /**
      * @var float
      */
-    public $y = 0.0;
+    public $y = null;
 
     /**
      * @var float
@@ -92,22 +93,12 @@ class LineBox
     public $inline = false;
 
     /**
-     * @var int
-     */
-    public static $max_float_reflows = 10000;
-
-    /**
-     * FIXME smelly hack, used by the get_float_offsets method.
+     * Class constructor
      *
-     * @var int
-     */
-    private static $float_offset_anti_infinite_loop = 10000;
-
-    /**
      * @param Block $frame the Block containing this line
-     * @param float $y
+     * @param int $y
      */
-    public function __construct(Block $frame, float $y = 0.0)
+    public function __construct(Block $frame, $y = 0)
     {
         $this->_block_frame = $frame;
         $this->_frames = [];
@@ -123,7 +114,7 @@ class LineBox
      *
      * @return Frame[]
      */
-    public function get_floats_inside(Page $root): array
+    public function get_floats_inside(Page $root)
     {
         $floating_frames = $root->get_floating_frames();
 
@@ -164,16 +155,10 @@ class LineBox
         return $childs;
     }
 
-    /**
-     * Resets the anti-infinite-loop counter for the get_float_offsets method.
-     */
-    public static function reset_float_reflow_limit(): void
+    public function get_float_offsets()
     {
-        self::$float_offset_anti_infinite_loop = self::$max_float_reflows;
-    }
+        static $anti_infinite_loop = 10000; // FIXME smelly hack
 
-    public function get_float_offsets(): void
-    {
         $reflower = $this->_block_frame->get_reflower();
 
         if (!$reflower) {
@@ -219,7 +204,7 @@ class LineBox
             }
 
             // If the child is still shifted by the floating element
-            if (self::$float_offset_anti_infinite_loop-- > 0 &&
+            if ($anti_infinite_loop-- > 0 &&
                 $floating_frame->get_position("y") + $floating_frame->get_margin_height() >= $this->y &&
                 $block->get_position("x") + $block->get_margin_width() >= $floating_frame->get_position("x")
             ) {
@@ -257,7 +242,7 @@ class LineBox
     /**
      * @return float
      */
-    public function get_width(): float
+    public function get_width()
     {
         return $this->left + $this->w + $this->right;
     }
@@ -265,7 +250,7 @@ class LineBox
     /**
      * @return Block
      */
-    public function get_block_frame(): Block
+    public function get_block_frame()
     {
         return $this->_block_frame;
     }
@@ -273,17 +258,9 @@ class LineBox
     /**
      * @return AbstractFrameDecorator[]
      */
-    public function &get_frames(): array
+    function &get_frames()
     {
         return $this->_frames;
-    }
-
-    /**
-     * @return bool
-     */
-    public function is_empty(): bool
-    {
-        return $this->_frames === [];
     }
 
     /**
@@ -362,9 +339,9 @@ class LineBox
      * An iterator of all list markers and inline positioned frames of the line
      * box.
      *
-     * @return Iterator<AbstractFrameDecorator>
+     * @return \Iterator<AbstractFrameDecorator>
      */
-    public function frames_to_align(): Iterator
+    public function frames_to_align(): \Iterator
     {
         yield from $this->list_markers;
 
@@ -411,6 +388,9 @@ class LineBox
         return $this->w = $width;
     }
 
+    /**
+     * @return string
+     */
     public function __toString(): string
     {
         $props = ["wc", "y", "w", "h", "left", "right", "br"];
@@ -423,3 +403,11 @@ class LineBox
         return $s;
     }
 }
+
+/*
+class LineBoxList implements Iterator {
+  private $_p = 0;
+  private $_lines = array();
+
+}
+*/

@@ -1,7 +1,10 @@
 <?php
 /**
  * @package dompdf
- * @link    https://github.com/dompdf/dompdf
+ * @link    http://dompdf.github.com/
+ * @author  Benj Carson <benjcarson@digitaljunkies.ca>
+ * @author  Helmut Tischer <htischer@weihenstephan.org>
+ * @author  Fabien Ménager <fabien.menager@gmail.com>
  * @license http://www.gnu.org/copyleft/lesser.html GNU Lesser General Public License
  */
 namespace Dompdf\Renderer;
@@ -45,13 +48,13 @@ class Text extends AbstractRenderer
         $style = $frame->get_style();
         $text = $frame->get_text();
 
-        if ($text === "") {
+        if (trim($text) === "") {
             return;
         }
 
         $this->_set_opacity($frame->get_opacity($style->opacity));
 
-        [$x, $y] = $frame->get_position();
+        list($x, $y) = $frame->get_position();
         $cb = $frame->get_containing_block();
 
         $ml = $style->margin_left;
@@ -150,12 +153,9 @@ class Text extends AbstractRenderer
             $this->_canvas->line($x1, $deco_y, $x2, $deco_y, $color, $line_thickness);
         }
 
-        $options = $this->_dompdf->getOptions();
-
-        if ($options->getDebugLayout() && $options->getDebugLayoutLines()) {
-            $fontMetrics = $this->_dompdf->getFontMetrics();
-            $textWidth = $fontMetrics->getTextWidth($text, $font, $size, $word_spacing, $letter_spacing);
-            $this->debugLayout([$x, $y, $textWidth, $frame_font_size], "orange", [0.5, 0.5]);
+        if ($this->_dompdf->getOptions()->getDebugLayout() && $this->_dompdf->getOptions()->getDebugLayoutLines()) {
+            $text_width = $this->_dompdf->getFontMetrics()->getTextWidth($text, $font, $size, $word_spacing, $letter_spacing);
+            $this->_debug_layout([$x, $y, $text_width, $frame_font_size], "orange", [0.5, 0.5]);
         }
     }
 }

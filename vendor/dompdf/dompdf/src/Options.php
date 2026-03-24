@@ -1,9 +1,4 @@
 <?php
-/**
- * @package dompdf
- * @link    https://github.com/dompdf/dompdf
- * @license http://www.gnu.org/copyleft/lesser.html GNU Lesser General Public License
- */
 namespace Dompdf;
 
 class Options
@@ -71,30 +66,22 @@ class Options
     * Protocol whitelist
     *
     * Protocols and PHP wrappers allowed in URIs, and the validation rules
-    * that determine if a resource may be loaded. Full support is not guaranteed
+    * that determine if a resouce may be loaded. Full support is not guaranteed
     * for the protocols/wrappers specified
     * by this array.
     *
     * @var array
     */
     private $allowedProtocols = [
-        "data://" => ["rules" => []],
         "file://" => ["rules" => []],
         "http://" => ["rules" => []],
         "https://" => ["rules" => []]
     ];
 
     /**
-    * Operational artifact (log files, temporary files) path validation
-    *
-    * @var callable
-    */
-    private $artifactPathValidation = null;
-
-    /**
      * @var string
      */
-    private $logOutputFile = '';
+    private $logOutputFile;
 
     /**
      * Styles targeted to this media type are applied to the document.
@@ -111,7 +98,7 @@ class Options
      * North America standard is "letter"; other countries generally "a4"
      * @see \Dompdf\Adapter\CPDF::PAPER_SIZES for valid sizes
      *
-     * @var string|float[]
+     * @var string
      */
     private $defaultPaperSize = "letter";
 
@@ -205,34 +192,6 @@ class Options
      * @var bool
      */
     private $isRemoteEnabled = false;
-
-    /**
-     * List of allowed remote hosts
-     *
-     * Each value of the array must be a valid hostname.
-     *
-     * This will be used to filter which resources can be loaded in combination with
-     * isRemoteEnabled. If isRemoteEnabled is FALSE, then this will have no effect.
-     *
-     * Leave to NULL to allow any remote host.
-     *
-     * @var array|null
-     */
-    private $allowedRemoteHosts = null;
-
-    /**
-     * Enable PDF/A-3 compliance mode
-     *
-     * ==== EXPERIMENTAL ====
-     * This feature is currently only supported with the CPDF backend and will
-     * have no effect if used with any other.
-     *
-     * Currently this mode only takes care of adding the necessary metadata, output intents, etc.
-     * It does not enforce font embedding, it's up to you to embed the fonts you plan on using.
-     *
-     * @var bool
-     */
-    private $isPdfAEnabled = false;
 
     /**
      * Enable inline JavaScript
@@ -345,7 +304,7 @@ class Options
     /**
      * @param array $attributes
      */
-    public function __construct(?array $attributes = null)
+    public function __construct(array $attributes = null)
     {
         $rootDir = realpath(__DIR__ . "/../");
         $this->setChroot(array($rootDir));
@@ -356,7 +315,7 @@ class Options
 
         $ver = "";
         $versionFile = realpath(__DIR__ . '/../VERSION');
-        if (file_exists($versionFile) && ($version = file_get_contents($versionFile)) !== false) {
+        if (($version = file_get_contents($versionFile)) !== false) {
             $version = trim($version);
             if ($version !== '$Format:<%h>$') {
                 $ver = "/$version";
@@ -369,9 +328,7 @@ class Options
             ]
         ]);
 
-        $this->setAllowedProtocols(["data://", "file://", "http://", "https://"]);
-
-        $this->setArtifactPathValidation([$this, "validateArtifactPath"]);
+        $this->setAllowedProtocols(["file://", "http://", "https://"]);
 
         if (null !== $attributes) {
             $this->set($attributes);
@@ -388,30 +345,65 @@ class Options
         if (!is_array($attributes)) {
             $attributes = [$attributes => $value];
         }
-
         foreach ($attributes as $key => $value) {
-            $methodForMatch = lcfirst(str_replace(' ', '', ucwords(str_replace('_', ' ', $key))));
-            $methodForCall = "set" . ucfirst($methodForMatch);
-
-            if ($methodForMatch === 'enablePhp') {
-                $methodForCall = "setIsPhpEnabled";
-            } elseif ($methodForMatch === 'enableRemote') {
-                $methodForCall = "setIsRemoteEnabled";
-            } elseif ($methodForMatch === 'enablePdfA') {
-                $methodForCall = "setIsPdfAEnabled";
-            } elseif ($methodForMatch === 'enableJavascript') {
-                $methodForCall = "setIsJavascriptEnabled";
-            } elseif ($methodForMatch === 'enableHtml5Parser') {
-                $methodForCall = "setIsHtml5ParserEnabled";
-            } elseif ($methodForMatch === 'enableFontSubsetting') {
-                $methodForCall = "setIsFontSubsettingEnabled";
-            }
-
-            if (method_exists($this, $methodForCall)) {
-                $this->{$methodForCall}($value);
+            if ($key === 'tempDir' || $key === 'temp_dir') {
+                $this->setTempDir($value);
+            } elseif ($key === 'fontDir' || $key === 'font_dir') {
+                $this->setFontDir($value);
+            } elseif ($key === 'fontCache' || $key === 'font_cache') {
+                $this->setFontCache($value);
+            } elseif ($key === 'chroot') {
+                $this->setChroot($value);
+            } elseif ($key === 'allowedProtocols') {
+                $this->setAllowedProtocols($value);
+            } elseif ($key === 'logOutputFile' || $key === 'log_output_file') {
+                $this->setLogOutputFile($value);
+            } elseif ($key === 'defaultMediaType' || $key === 'default_media_type') {
+                $this->setDefaultMediaType($value);
+            } elseif ($key === 'defaultPaperSize' || $key === 'default_paper_size') {
+                $this->setDefaultPaperSize($value);
+            } elseif ($key === 'defaultPaperOrientation' || $key === 'default_paper_orientation') {
+                $this->setDefaultPaperOrientation($value);
+            } elseif ($key === 'defaultFont' || $key === 'default_font') {
+                $this->setDefaultFont($value);
+            } elseif ($key === 'dpi') {
+                $this->setDpi($value);
+            } elseif ($key === 'fontHeightRatio' || $key === 'font_height_ratio') {
+                $this->setFontHeightRatio($value);
+            } elseif ($key === 'isPhpEnabled' || $key === 'is_php_enabled' || $key === 'enable_php') {
+                $this->setIsPhpEnabled($value);
+            } elseif ($key === 'isRemoteEnabled' || $key === 'is_remote_enabled' || $key === 'enable_remote') {
+                $this->setIsRemoteEnabled($value);
+            } elseif ($key === 'isJavascriptEnabled' || $key === 'is_javascript_enabled' || $key === 'enable_javascript') {
+                $this->setIsJavascriptEnabled($value);
+            } elseif ($key === 'isHtml5ParserEnabled' || $key === 'is_html5_parser_enabled' || $key === 'enable_html5_parser') {
+                $this->setIsHtml5ParserEnabled($value);
+            } elseif ($key === 'isFontSubsettingEnabled' || $key === 'is_font_subsetting_enabled' || $key === 'enable_font_subsetting') {
+                $this->setIsFontSubsettingEnabled($value);
+            } elseif ($key === 'debugPng' || $key === 'debug_png') {
+                $this->setDebugPng($value);
+            } elseif ($key === 'debugKeepTemp' || $key === 'debug_keep_temp') {
+                $this->setDebugKeepTemp($value);
+            } elseif ($key === 'debugCss' || $key === 'debug_css') {
+                $this->setDebugCss($value);
+            } elseif ($key === 'debugLayout' || $key === 'debug_layout') {
+                $this->setDebugLayout($value);
+            } elseif ($key === 'debugLayoutLines' || $key === 'debug_layout_lines') {
+                $this->setDebugLayoutLines($value);
+            } elseif ($key === 'debugLayoutBlocks' || $key === 'debug_layout_blocks') {
+                $this->setDebugLayoutBlocks($value);
+            } elseif ($key === 'debugLayoutInline' || $key === 'debug_layout_inline') {
+                $this->setDebugLayoutInline($value);
+            } elseif ($key === 'debugLayoutPaddingBox' || $key === 'debug_layout_padding_box') {
+                $this->setDebugLayoutPaddingBox($value);
+            } elseif ($key === 'pdfBackend' || $key === 'pdf_backend') {
+                $this->setPdfBackend($value);
+            } elseif ($key === 'pdflibLicense' || $key === 'pdflib_license') {
+                $this->setPdflibLicense($value);
+            } elseif ($key === 'httpContext' || $key === 'http_context') {
+                $this->setHttpContext($value);
             }
         }
-
         return $this;
     }
 
@@ -421,27 +413,63 @@ class Options
      */
     public function get($key)
     {
-        $methodForMatch = lcfirst(str_replace(' ', '', ucwords(str_replace('_', ' ', $key))));
-        $methodForCall = "get" . ucfirst($methodForMatch);
-        
-        if ($methodForMatch === 'enablePhp') {
-            $methodForCall = "getIsPhpEnabled";
-        } elseif ($methodForMatch === 'enableRemote') {
-            $methodForCall = "getIsRemoteEnabled";
-        } elseif ($methodForMatch === 'enablePdfA') {
-            $methodForCall = "getIsPdfAEnabled";
-        } elseif ($methodForMatch === 'enableJavascript') {
-            $methodForCall = "getIsJavascriptEnabled";
-        } elseif ($methodForMatch === 'enableHtml5Parser') {
-            $methodForCall = "getIsHtml5ParserEnabled";
-        } elseif ($methodForMatch === 'enableFontSubsetting') {
-            $methodForCall = "getIsFontSubsettingEnabled";
+        if ($key === 'tempDir' || $key === 'temp_dir') {
+            return $this->getTempDir();
+        } elseif ($key === 'fontDir' || $key === 'font_dir') {
+            return $this->getFontDir();
+        } elseif ($key === 'fontCache' || $key === 'font_cache') {
+            return $this->getFontCache();
+        } elseif ($key === 'chroot') {
+            return $this->getChroot();
+        } elseif ($key === 'allowedProtocols') {
+            return $this->getAllowedProtocols();
+        } elseif ($key === 'logOutputFile' || $key === 'log_output_file') {
+            return $this->getLogOutputFile();
+        } elseif ($key === 'defaultMediaType' || $key === 'default_media_type') {
+            return $this->getDefaultMediaType();
+        } elseif ($key === 'defaultPaperSize' || $key === 'default_paper_size') {
+            return $this->getDefaultPaperSize();
+        } elseif ($key === 'defaultPaperOrientation' || $key === 'default_paper_orientation') {
+            return $this->getDefaultPaperOrientation();
+        } elseif ($key === 'defaultFont' || $key === 'default_font') {
+            return $this->getDefaultFont();
+        } elseif ($key === 'dpi') {
+            return $this->getDpi();
+        } elseif ($key === 'fontHeightRatio' || $key === 'font_height_ratio') {
+            return $this->getFontHeightRatio();
+        } elseif ($key === 'isPhpEnabled' || $key === 'is_php_enabled' || $key === 'enable_php') {
+            return $this->getIsPhpEnabled();
+        } elseif ($key === 'isRemoteEnabled' || $key === 'is_remote_enabled' || $key === 'enable_remote') {
+            return $this->getIsRemoteEnabled();
+        } elseif ($key === 'isJavascriptEnabled' || $key === 'is_javascript_enabled' || $key === 'enable_javascript') {
+            return $this->getIsJavascriptEnabled();
+        } elseif ($key === 'isHtml5ParserEnabled' || $key === 'is_html5_parser_enabled' || $key === 'enable_html5_parser') {
+            return $this->getIsHtml5ParserEnabled();
+        } elseif ($key === 'isFontSubsettingEnabled' || $key === 'is_font_subsetting_enabled' || $key === 'enable_font_subsetting') {
+            return $this->getIsFontSubsettingEnabled();
+        } elseif ($key === 'debugPng' || $key === 'debug_png') {
+            return $this->getDebugPng();
+        } elseif ($key === 'debugKeepTemp' || $key === 'debug_keep_temp') {
+            return $this->getDebugKeepTemp();
+        } elseif ($key === 'debugCss' || $key === 'debug_css') {
+            return $this->getDebugCss();
+        } elseif ($key === 'debugLayout' || $key === 'debug_layout') {
+            return $this->getDebugLayout();
+        } elseif ($key === 'debugLayoutLines' || $key === 'debug_layout_lines') {
+            return $this->getDebugLayoutLines();
+        } elseif ($key === 'debugLayoutBlocks' || $key === 'debug_layout_blocks') {
+            return $this->getDebugLayoutBlocks();
+        } elseif ($key === 'debugLayoutInline' || $key === 'debug_layout_inline') {
+            return $this->getDebugLayoutInline();
+        } elseif ($key === 'debugLayoutPaddingBox' || $key === 'debug_layout_padding_box') {
+            return $this->getDebugLayoutPaddingBox();
+        } elseif ($key === 'pdfBackend' || $key === 'pdf_backend') {
+            return $this->getPdfBackend();
+        } elseif ($key === 'pdflibLicense' || $key === 'pdflib_license') {
+            return $this->getPdflibLicense();
+        } elseif ($key === 'httpContext' || $key === 'http_context') {
+            return $this->getHttpContext();
         }
-
-        if (method_exists($this, $methodForCall)) {
-            return $this->{$methodForCall}();
-        }
-        
         return null;
     }
 
@@ -543,8 +571,6 @@ class Options
         if (empty($rules)) {
             $rules = [];
             switch ($protocol) {
-                case "data://":
-                    break;
                 case "file://":
                     $rules[] = [$this, "validateLocalUri"];
                     break;
@@ -558,24 +584,6 @@ class Options
             }
         }
         $this->allowedProtocols[$protocol] = ["rules" => $rules];
-        return $this;
-    }
-
-    /**
-     * @return array
-     */
-    public function getArtifactPathValidation()
-    {
-        return $this->artifactPathValidation;
-    }
-
-    /**
-     * @param callable $validator
-     * @return $this
-     */
-    public function setArtifactPathValidation($validator)
-    {
-        $this->artifactPathValidation = $validator;
         return $this;
     }
 
@@ -776,10 +784,10 @@ class Options
     }
 
     /**
-     * @param string|float[] $defaultPaperSize
+     * @param string $defaultPaperSize
      * @return $this
      */
-    public function setDefaultPaperSize($defaultPaperSize): self
+    public function setDefaultPaperSize($defaultPaperSize)
     {
         $this->defaultPaperSize = $defaultPaperSize;
         return $this;
@@ -789,14 +797,14 @@ class Options
      * @param string $defaultPaperOrientation
      * @return $this
      */
-    public function setDefaultPaperOrientation(string $defaultPaperOrientation): self
+    public function setDefaultPaperOrientation($defaultPaperOrientation)
     {
         $this->defaultPaperOrientation = $defaultPaperOrientation;
         return $this;
     }
 
     /**
-     * @return string|float[]
+     * @return string
      */
     public function getDefaultPaperSize()
     {
@@ -806,7 +814,7 @@ class Options
     /**
      * @return string
      */
-    public function getDefaultPaperOrientation(): string
+    public function getDefaultPaperOrientation()
     {
         return $this->defaultPaperOrientation;
     }
@@ -835,9 +843,7 @@ class Options
      */
     public function setFontCache($fontCache)
     {
-        if (!is_callable($this->artifactPathValidation) || ($this->artifactPathValidation)($fontCache, "fontCache") === true) {
-            $this->fontCache = $fontCache;
-        }
+        $this->fontCache = $fontCache;
         return $this;
     }
 
@@ -855,9 +861,7 @@ class Options
      */
     public function setFontDir($fontDir)
     {
-        if (!is_callable($this->artifactPathValidation) || ($this->artifactPathValidation)($fontDir, "fontDir") === true) {
-            $this->fontDir = $fontDir;
-        }
+        $this->fontDir = $fontDir;
         return $this;
     }
 
@@ -1021,67 +1025,12 @@ class Options
     }
 
     /**
-     * @param array|null $allowedRemoteHosts
-     * @return $this
-     */
-    public function setAllowedRemoteHosts($allowedRemoteHosts)
-    {
-        if (is_array($allowedRemoteHosts)) {
-            // Set hosts to lowercase
-            foreach ($allowedRemoteHosts as &$host) {
-                $host = mb_strtolower($host, "UTF-8");
-            }
-
-            unset($host);
-        }
-
-        $this->allowedRemoteHosts = $allowedRemoteHosts;
-        return $this;
-    }
-
-    /**
-     * @return array|null
-     */
-    public function getAllowedRemoteHosts()
-    {
-        return $this->allowedRemoteHosts;
-    }
-
-    /**
-     * @param boolean $isRemoteEnabled
-     * @return $this
-     */
-    public function setIsPdfAEnabled($isPdfAEnabled)
-    {
-        $this->isPdfAEnabled = $isPdfAEnabled;
-        return $this;
-    }
-
-    /**
-     * @return boolean
-     */
-    public function getIsPdfAEnabled()
-    {
-        return $this->isPdfAEnabled;
-    }
-
-    /**
-     * @return boolean
-     */
-    public function isPdfAEnabled()
-    {
-        return $this->getIsPdfAEnabled();
-    }
-
-    /**
      * @param string $logOutputFile
      * @return $this
      */
     public function setLogOutputFile($logOutputFile)
     {
-        if (!is_callable($this->artifactPathValidation) || ($this->artifactPathValidation)($logOutputFile, "logOutputFile") === true) {
-            $this->logOutputFile = $logOutputFile;
-        }
+        $this->logOutputFile = $logOutputFile;
         return $this;
     }
 
@@ -1099,9 +1048,7 @@ class Options
      */
     public function setTempDir($tempDir)
     {
-        if (!is_callable($this->artifactPathValidation) || ($this->artifactPathValidation)($tempDir, "tempDir") === true) {
-            $this->tempDir = $tempDir;
-        }
+        $this->tempDir = $tempDir;
         return $this;
     }
 
@@ -1119,9 +1066,7 @@ class Options
      */
     public function setRootDir($rootDir)
     {
-        if (!is_callable($this->artifactPathValidation) || ($this->artifactPathValidation)($rootDir, "rootDir") === true) {
-            $this->rootDir = $rootDir;
-        }
+        $this->rootDir = $rootDir;
         return $this;
     }
 
@@ -1153,19 +1098,6 @@ class Options
     public function getHttpContext()
     {
         return $this->httpContext;
-    }
-
-
-    public function validateArtifactPath(?string $path, string $option)
-    {
-        if ($path === null) {
-            return true;
-        }
-        $parsed_uri = parse_url($path);
-        if ($parsed_uri === false || (array_key_exists("scheme", $parsed_uri) && strtolower($parsed_uri["scheme"]) === "phar")) {
-            return false;
-        }
-        return true;
     }
 
     public function validateLocalUri(string $uri)
@@ -1215,15 +1147,6 @@ class Options
 
         if (!$this->isRemoteEnabled) {
             return [false, "Remote file requested, but remote file download is disabled."];
-        }
-
-        if (is_array($this->allowedRemoteHosts) && count($this->allowedRemoteHosts) > 0) {
-            $host = parse_url($uri, PHP_URL_HOST);
-            $host = mb_strtolower($host, "UTF-8");
-
-            if (!in_array($host, $this->allowedRemoteHosts, true)) {
-                return [false, "Remote host is not in allowed list: " . $host];
-            }
         }
 
         return [true, null];

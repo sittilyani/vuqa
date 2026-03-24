@@ -1,7 +1,8 @@
 <?php
 /**
  * @package dompdf
- * @link    https://github.com/dompdf/dompdf
+ * @link    http://dompdf.github.com/
+ * @author  Benj Carson <benjcarson@digitaljunkies.ca>
  * @license http://www.gnu.org/copyleft/lesser.html GNU Lesser General Public License
  */
 namespace Dompdf\FrameReflower;
@@ -29,12 +30,8 @@ class ListBullet extends AbstractFrameReflower
     /**
      * @param BlockFrameDecorator|null $block
      */
-    function reflow(?BlockFrameDecorator $block = null)
+    function reflow(BlockFrameDecorator $block = null)
     {
-        if ($block === null) {
-            return;
-        }
-
         /** @var ListBulletFrameDecorator */
         $frame = $this->_frame;
         $style = $frame->get_style();

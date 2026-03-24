@@ -67,6 +67,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_assessment']))
             fif_includes_hiv_tb_pmtct, sha_capitation_hiv_tb,
             deaths_all_cause, deaths_hiv_related, deaths_hiv_pre_art,
             deaths_tb, deaths_maternal, deaths_perinatal,
+            leadership_commitment, transition_plan, hiv_in_awp, hrh_gap,
+            staff_multiskilled, roving_staff, infrastructure_capacity, space_adequacy,
+            service_delivery_without_ccc, avg_wait_time, data_integration_level,
+            financing_coverage, disruption_risk, integration_barriers,
             collected_by, collection_date
         ) VALUES (
             $fid, '{$e($_POST['assessment_period'])}',
@@ -109,6 +113,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_assessment']))
             {$i($_POST['deaths_all_cause'] ?? '')}, {$i($_POST['deaths_hiv_related'] ?? '')},
             {$i($_POST['deaths_hiv_pre_art'] ?? '')}, {$i($_POST['deaths_tb'] ?? '')},
             {$i($_POST['deaths_maternal'] ?? '')}, {$i($_POST['deaths_perinatal'] ?? '')},
+            '{$e($_POST['leadership_commitment'] ?? '')}', '{$e($_POST['transition_plan'] ?? '')}',
+            '{$e($_POST['hiv_in_awp'] ?? '')}', '{$e($_POST['hrh_gap'] ?? '')}',
+            '{$e($_POST['staff_multiskilled'] ?? '')}', '{$e($_POST['roving_staff'] ?? '')}',
+            '{$e($_POST['infrastructure_capacity'] ?? '')}', '{$e($_POST['space_adequacy'] ?? '')}',
+            '{$e($_POST['service_delivery_without_ccc'] ?? '')}', '{$e($_POST['avg_wait_time'] ?? '')}',
+            '{$e($_POST['data_integration_level'] ?? '')}', '{$e($_POST['financing_coverage'] ?? '')}',
+            '{$e($_POST['disruption_risk'] ?? '')}', '{$e($_POST['integration_barriers'] ?? '')}',
             '{$e($_SESSION['full_name'] ?? '')}', '{$e($_POST['collection_date'] ?? date('Y-m-d'))}'
         )";
 

@@ -1,43 +1,41 @@
 <?php
 /**
  * @package dompdf
- * @link    https://github.com/dompdf/dompdf
+ * @link    http://dompdf.github.com/
+ * @author  Benj Carson <benjcarson@digitaljunkies.ca>
  * @license http://www.gnu.org/copyleft/lesser.html GNU Lesser General Public License
  */
 namespace Dompdf\Renderer;
 
 use Dompdf\Frame;
+use Dompdf\Helpers;
 
 /**
  * Renders inline frames
  *
+ * @access  private
  * @package dompdf
  */
 class Inline extends AbstractRenderer
 {
     function render(Frame $frame)
     {
-        // Get the first in-flow child
-        $child = $frame->get_first_child();
-        while ($child && !$child->is_in_flow()) {
-            $child = $child->get_next_sibling();
-        }
-
-        if (!$child) {
+        if (!$frame->get_first_child()) {
             return; // No children, no service
         }
 
         $style = $frame->get_style();
-        $node = $frame->get_node();
+        $dompdf = $this->_dompdf;
 
         $this->_set_opacity($frame->get_opacity($style->opacity));
 
-        // Draw background & border behind each child. To do this, we need to
-        // to figure out just how much space each child takes. Retrieve the
-        // position of the first child again, to account for text and vertical
-        // alignment
-        [$x, $y] = $child->get_position();
-        [$w, $h] = $this->get_child_size($frame);
+        $do_debug_layout_line = $dompdf->getOptions()->getDebugLayout()
+            && $dompdf->getOptions()->getDebugLayoutInline();
+
+        // Draw the background & border behind each child.  To do this we need
+        // to figure out just how much space each child takes:
+        [$x, $y] = $frame->get_first_child()->get_position();
+        [$w, $h] = $this->get_child_size($frame, $do_debug_layout_line);
 
         [, , $cbw] = $frame->get_containing_block();
         $margin_left = $style->length_in_pt($style->margin_left, $cbw);
@@ -51,6 +49,7 @@ class Inline extends AbstractRenderer
         // to work around the vertical position being slightly off in general
         $x += $margin_left;
         $y -= $style->border_top_width + $pt - ($h * 0.1);
+        $w += $style->border_left_width + $style->border_right_width;
         $h += $style->border_top_width + $pt + $style->border_bottom_width + $pb;
 
         $border_box = [$x, $y, $w, $h];
@@ -58,62 +57,66 @@ class Inline extends AbstractRenderer
         $this->_render_border($frame, $border_box);
         $this->_render_outline($frame, $border_box);
 
-        $this->addNamedDest($node);
-        $this->addHyperlink($node, $border_box);
+        $node = $frame->get_node();
+        $id = $node->getAttribute("id");
+        if (strlen($id) > 0) {
+            $this->_canvas->add_named_dest($id);
+        }
 
-        $options = $this->_dompdf->getOptions();
+        // Only two levels of links frames
+        $is_link_node = $node->nodeName === "a";
+        if ($is_link_node) {
+            if (($name = $node->getAttribute("name"))) {
+                $this->_canvas->add_named_dest($name);
+            }
+        }
 
-        if ($options->getDebugLayout() && $options->getDebugLayoutInline()) {
-            $this->debugLayout($border_box, "blue");
+        if ($frame->get_parent() && $frame->get_parent()->get_node()->nodeName === "a") {
+            $link_node = $frame->get_parent()->get_node();
+        }
 
-            if ($options->getDebugLayoutPaddingBox()) {
-                $padding_box = [
-                    $x + $style->border_left_width,
-                    $y + $style->border_top_width,
-                    $w - $style->border_left_width - $style->border_right_width,
-                    $h - $style->border_top_width - $style->border_bottom_width
-                ];
-                $this->debugLayout($padding_box, "blue", [0.5, 0.5]);
+        // Handle anchors & links
+        if ($is_link_node) {
+            if ($href = $node->getAttribute("href")) {
+                $href = Helpers::build_url($dompdf->getProtocol(), $dompdf->getBaseHost(), $dompdf->getBasePath(), $href) ?? $href;
+                $this->_canvas->add_link($href, $x, $y, $w, $h);
             }
         }
     }
 
-    protected function get_child_size(Frame $frame): array
+    protected function get_child_size(Frame $frame, bool $do_debug_layout_line): array
     {
         $w = 0.0;
         $h = 0.0;
 
         foreach ($frame->get_children() as $child) {
-            if (!$child->is_in_flow()) {
-                continue;
-            }
-
-            // Exclude trailing white space
-            if ($child->get_node()->nodeValue === " "
-                && $child->get_prev_sibling() && !$child->get_next_sibling()
-            ) {
+            if ($child->get_node()->nodeValue === " " && $child->get_prev_sibling() && !$child->get_next_sibling()) {
                 break;
             }
 
             $style = $child->get_style();
-            $auto_width = $style->width === "auto";
-            $auto_height = $style->height === "auto";
-            [, , $child_w, $child_h] = $child->get_border_box();
+            list(, , $child_w, $child_h) = $child->get_padding_box();
 
-            if ($auto_width || $auto_height) {
-                [$child_w2, $child_h2] = $this->get_child_size($child);
+            $child_h2 = 0.0;
 
-                if ($auto_width) {
-                    $child_w = $child_w2;
-                }
-    
-                if ($auto_height) {
-                    $child_h = $child_h2;
-                }
+            if ($style->width === "auto") {
+                list($child_w, $child_h2) = $this->get_child_size($child, $do_debug_layout_line);
+            }
+
+            if ($style->height === "auto") {
+                list(, $child_h2) = $this->get_child_size($child, $do_debug_layout_line);
             }
 
             $w += $child_w;
-            $h = max($h, $child_h);
+            $h = max($h, $child_h, $child_h2);
+
+            if ($do_debug_layout_line) {
+                $this->_debug_layout($child->get_border_box(), "blue");
+
+                if ($this->_dompdf->getOptions()->getDebugLayoutPaddingBox()) {
+                    $this->_debug_layout($child->get_padding_box(), "blue", [0.5, 0.5]);
+                }
+            }
         }
 
         return [$w, $h];

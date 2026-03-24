@@ -1,13 +1,16 @@
 <?php
 /**
  * @package dompdf
- * @link    https://github.com/dompdf/dompdf
+ * @link    http://dompdf.github.com/
+ * @author  Benj Carson <benjcarson@digitaljunkies.ca>
+ * @author  Helmut Tischer <htischer@weihenstephan.org>
  * @license http://www.gnu.org/copyleft/lesser.html GNU Lesser General Public License
  */
 namespace Dompdf\FrameDecorator;
 
 use Dompdf\Dompdf;
 use Dompdf\Frame;
+use Dompdf\Helpers;
 use Dompdf\Image\Cache;
 
 /**
