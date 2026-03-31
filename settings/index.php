@@ -246,7 +246,7 @@
              <h4>Courses/Trainings</h4>
              <ul><a href="add_qualification.php">Add Academic Qualification</a></ul>
              <ul><a href="add_professional_body.php">Add Professional Body</a></ul>
-             <ul><a href="add_trainings.php">Add Trainings</a></ul>
+             <ul><a href="add_training.php">Add Trainings</a></ul>
              <ul><a href="add_training_type.php">Add Training Type</a></ul>
              <ul><a href="add_training_location.php">Add Training Location</a></ul>
          </div>
