@@ -21,16 +21,18 @@ $cadres = mysqli_query($conn, "SELECT cadre_name FROM cadres ORDER BY cadre_name
 $facilities = mysqli_query($conn, "SELECT facility_name FROM facilities ORDER BY facility_name");
 
 if (isset($_POST['submit'])) {
+    // Validate required fields
+    $errors = array();
+
     // Get form data - use proper escaping for all fields
-    $first_name = mysqli_real_escape_string($conn, $_POST['first_name']);
-    $last_name = mysqli_real_escape_string($conn, $_POST['last_name']);
-    $other_name = mysqli_real_escape_string($conn, $_POST['other_name']);
+    $first_name = mysqli_real_escape_string($conn, trim($_POST['first_name']));
+    $last_name = mysqli_real_escape_string($conn, trim($_POST['last_name']));
+    $other_name = mysqli_real_escape_string($conn, trim($_POST['other_name']));
     $sex = mysqli_real_escape_string($conn, $_POST['sex']);
-    $date_of_birth   = mysqli_real_escape_string($conn, $_POST['date_of_birth']);
-    $date_of_joining = mysqli_real_escape_string($conn, $_POST['date_of_joining']);
-    $staff_phone = mysqli_real_escape_string($conn, $_POST['staff_phone']);
-    $id_number = mysqli_real_escape_string($conn, $_POST['id_number']);
-    $email = mysqli_real_escape_string($conn, $_POST['email']);
+    $staff_phone = mysqli_real_escape_string($conn, trim($_POST['staff_phone']));
+    $id_number = $_POST['id_number'];
+    $email = mysqli_real_escape_string($conn, trim($_POST['email']));
+    $job_title = mysqli_real_escape_string($conn, trim($_POST['job_title']));
 
     // Get the names directly from form (since we're storing names, not IDs)
     $facility_name = mysqli_real_escape_string($conn, $_POST['facility_name']);
@@ -41,29 +43,49 @@ if (isset($_POST['submit'])) {
     $cadre_name = mysqli_real_escape_string($conn, $_POST['cadre_name']);
 
     // Get status names from dropdowns
-    $staff_status_name = mysqli_real_escape_string($conn, $_POST['staff_status_name']);
     $employment_status_name = mysqli_real_escape_string($conn, $_POST['employment_status_name']);
 
-    $created_by = $_SESSION['full_name'];
+    // Get disability status
+    $disability_status = isset($_POST['disability_status']) ? mysqli_real_escape_string($conn, $_POST['disability_status']) : 'no';
 
-    // Insert query with all fields
-    $insert = "INSERT INTO county_staff (
-        first_name, last_name, other_name, sex, date_of_birth, date_of_joining, staff_phone, id_number, email,
-        facility_name, county_name, subcounty_name, level_of_care_name,
-        department_name, cadre_name, status, staff_status, employment_status, created_by
-    ) VALUES (
-        '$first_name', '$last_name', '$other_name', '$sex', '$date_of_birth', '$date_of_joining', '$staff_phone',
-        '$id_number', '$email', '$facility_name',
-        '$county_name', '$subcounty_name', '$level_of_care_name',
-        '$department_name', '$cadre_name', 'active', '$staff_status_name', '$employment_status_name', '$created_by'
-    )";
+    $created_by = isset($_SESSION['full_name']) ? $_SESSION['full_name'] : 'System';
 
-    if (mysqli_query($conn, $insert)) {
-        $msg = "Staff added successfully!";
-        // Clear form data after successful submission
-        $_POST = array();
+    // Validate required fields
+    if (empty($first_name)) $errors[] = "First name is required";
+    if (empty($last_name)) $errors[] = "Last name is required";
+    if (empty($sex)) $errors[] = "Sex is required";
+    if (empty($facility_name)) $errors[] = "Facility is required";
+    if (empty($department_name)) $errors[] = "Department is required";
+    if (empty($cadre_name)) $errors[] = "Cadre is required";
+    if (empty($employment_status_name)) $errors[] = "Employment status is required";
+
+    // Validate email if provided
+    if (!empty($email) && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $errors[] = "Invalid email format";
+    }
+
+    if (empty($errors)) {
+
+        $insert = "INSERT INTO participant_registration (
+            first_name, last_name, other_name, sex, staff_phone, id_number, email,
+            job_title, facility_name, county_name, subcounty_name, level_of_care_name,
+            department_name, cadre_name, status, employment_status, disability_status, created_by
+        ) VALUES (
+            '$first_name', '$last_name', '$other_name', '$sex', '$staff_phone',
+            '$id_number', '$email', '$job_title', '$facility_name', '$county_name',
+            '$subcounty_name', '$level_of_care_name', '$department_name', '$cadre_name',
+            'active', '$employment_status_name', '$disability_status', '$created_by'
+        )";
+
+        if (mysqli_query($conn, $insert)) {
+            $msg = "Staff registered successfully!";
+            // Clear form data after successful submission
+            $_POST = array();
+        } else {
+            $error = "Insert Error: " . mysqli_error($conn);
+        }
     } else {
-        $error = "Insert Error: " . mysqli_error($conn);
+        $error = implode("<br>", $errors);
     }
 }
 ?>
@@ -72,7 +94,7 @@ if (isset($_POST['submit'])) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Add Staff</title>
+    <title>Add Staff - Initial Participant Registration</title>
 
     <!-- jQuery -->
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
@@ -95,7 +117,7 @@ if (isset($_POST['submit'])) {
         }
 
         .container {
-            max-width: 800px;
+            max-width: 900px;
             width: 100%;
             background: white;
             border-radius: 20px;
@@ -113,6 +135,11 @@ if (isset($_POST['submit'])) {
         .header h2 {
             font-size: 28px;
             font-weight: 600;
+        }
+
+        .header p {
+            margin-top: 8px;
+            opacity: 0.9;
         }
 
         .content {
@@ -189,6 +216,27 @@ if (isset($_POST['submit'])) {
             border-color: #dee2e6;
         }
 
+        .radio-group {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            padding: 10px 0;
+        }
+
+        .radio-group label {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 0;
+            cursor: pointer;
+        }
+
+        .radio-group input[type="radio"] {
+            width: auto;
+            margin: 0;
+            cursor: pointer;
+        }
+
         .btn-submit {
             width: 100%;
             padding: 14px;
@@ -206,6 +254,7 @@ if (isset($_POST['submit'])) {
         .btn-submit:hover {
             transform: translateY(-2px);
             box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+            background: #16227a;
         }
 
         .btn-submit:active {
@@ -246,13 +295,13 @@ if (isset($_POST['submit'])) {
 <body>
     <div class="container">
         <div class="header">
-            <h2>➕ Initial participant registration</h2>
+            <h2>➕ Initial Participant Registration</h2>
             <p>This participant is registered ONLY once</p>
         </div>
 
         <div class="content">
             <?php if ($msg): ?>
-                <div class="alert success"><?php echo $msg; ?></div>
+                <div class="alert success"><?php echo htmlspecialchars($msg); ?></div>
             <?php endif; ?>
 
             <?php if ($error): ?>
@@ -289,32 +338,13 @@ if (isset($_POST['submit'])) {
                     </div>
 
                     <div class="form-group">
-                        <label>Date of Birth <i>*</i></label>
-                        <input type="date" name="date_of_birth" id="date_of_birth"
-                               value="<?php echo isset($_POST['date_of_birth']) ? htmlspecialchars($_POST['date_of_birth']) : ''; ?>"
-                               max="<?php echo date('Y-m-d', strtotime('-18 years')); ?>"
-                               required>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Date of Joining <i>*</i></label>
-                        <input type="date" name="date_of_joining" id="date_of_joining"
-                               value="<?php echo isset($_POST['date_of_joining']) ? htmlspecialchars($_POST['date_of_joining']) : ''; ?>"
-                               max="<?php echo date('Y-m-d'); ?>"
-                               required>
-                        <small id="doj_hint" style="display:block;margin-top:6px;font-size:12px;color:#888;">
-                            Enter Date of Birth first — joining date must be at least 18 years after birth and not a future date.
-                        </small>
-                    </div>
-
-                    <div class="form-group">
                         <label>Phone Number</label>
-                        <input type="text" name="staff_phone" value="<?php echo isset($_POST['staff_phone']) ? htmlspecialchars($_POST['staff_phone']) : ''; ?>">
+                        <input type="tel" name="staff_phone" value="<?php echo isset($_POST['staff_phone']) ? htmlspecialchars($_POST['staff_phone']) : ''; ?>">
                     </div>
 
                     <div class="form-group">
-                        <label>ID Number <i>*</i></label>
-                        <input type="text" name="id_number" value="<?php echo isset($_POST['id_number']) ? htmlspecialchars($_POST['id_number']) : ''; ?>" required>
+                        <label>ID Number</label>
+                        <input type="text" name="id_number" value="<?php echo isset($_POST['id_number']) ? htmlspecialchars($_POST['id_number']) : ''; ?>">
                     </div>
 
                     <div class="form-group">
@@ -343,7 +373,7 @@ if (isset($_POST['submit'])) {
 
                     <div class="form-group">
                         <label>County</label>
-                        <input type="text" name="county_name" id="county" value="<?php echo isset($_POST['county_name']) ? htmlspecialchars($_POST['county_name']) : ''; ?>" placeholder="Auto-filled or type manually">
+                        <input type="text" name="county_name" id="county" value="<?php echo isset($_POST['county_name']) ? htmlspecialchars($_POST['county_name']) : ''; ?>" placeholder="Auto-filled from facility">
                     </div>
 
                     <div class="form-group">
@@ -391,24 +421,13 @@ if (isset($_POST['submit'])) {
                         </select>
                     </div>
 
+                    <div class="form-group">
+                        <label>Job Title</label>
+                        <input type="text" name="job_title" value="<?php echo isset($_POST['job_title']) ? htmlspecialchars($_POST['job_title']) : ''; ?>">
+                    </div>
+
                     <!-- Status Information Section -->
                     <div class="section-title">Status Information</div>
-
-                    <div class="form-group">
-                        <label>Staff Status <i>*</i></label>
-                        <select name="staff_status_name" required>
-                            <option value="">Select Staff Status</option>
-                            <?php
-                            mysqli_data_seek($staff_status_result, 0); // Reset pointer
-                            while ($row = mysqli_fetch_assoc($staff_status_result)):
-                            ?>
-                                <option value="<?php echo htmlspecialchars($row['staff_status_name']); ?>"
-                                    <?php echo (isset($_POST['staff_status_name']) && $_POST['staff_status_name'] == $row['staff_status_name']) ? 'selected' : ''; ?>>
-                                    <?php echo htmlspecialchars($row['staff_status_name']); ?>
-                                </option>
-                            <?php endwhile; ?>
-                        </select>
-                    </div>
 
                     <div class="form-group">
                         <label>Employment Status <i>*</i></label>
@@ -425,10 +444,24 @@ if (isset($_POST['submit'])) {
                             <?php endwhile; ?>
                         </select>
                     </div>
+
+                    <div class="form-group full-width">
+                        <label>Do you have a disability? <i>*</i></label>
+                        <div class="radio-group">
+                            <label>
+                                <input type="radio" name="disability_status" value="yes" <?php echo (isset($_POST['disability_status']) && $_POST['disability_status'] == 'yes') ? 'checked' : ''; ?>>
+                                Yes
+                            </label>
+                            <label>
+                                <input type="radio" name="disability_status" value="no" <?php echo (!isset($_POST['disability_status']) || $_POST['disability_status'] == 'no') ? 'checked' : ''; ?>>
+                                No
+                            </label>
+                        </div>
+                    </div>
                 </div>
 
                 <button type="submit" name="submit" class="btn-submit">
-                    💾 Save Staff Member
+                    💾 Register the Participant
                 </button>
             </form>
         </div>
@@ -436,78 +469,7 @@ if (isset($_POST['submit'])) {
 
     <script>
     $(document).ready(function() {
-
-        // ── Date of Birth → Date of Joining constraint ─────────────────────
-        var today = '<?php echo date('Y-m-d'); ?>';
-
-        function updateDojConstraints() {
-            var dob = $('#date_of_birth').val();
-            if (!dob) {
-                $('#date_of_joining').attr('min', '').attr('max', today);
-                $('#doj_hint').text('Enter Date of Birth first — joining date must be at least 18 years after birth and not a future date.');
-                return;
-            }
-
-            // Calculate min joining date = DOB + 18 years
-            var dobDate   = new Date(dob);
-            var minJoin   = new Date(dobDate);
-            minJoin.setFullYear(minJoin.getFullYear() + 18);
-
-            // Format as YYYY-MM-DD
-            var minJoinStr = minJoin.toISOString().split('T')[0];
-
-            $('#date_of_joining')
-                .attr('min', minJoinStr)
-                .attr('max', today);
-
-            // If a joining date was already selected that now violates the rule, clear it
-            var currentDoj = $('#date_of_joining').val();
-            if (currentDoj && (currentDoj < minJoinStr || currentDoj > today)) {
-                $('#date_of_joining').val('');
-            }
-
-            // Update hint text
-            var minDisplay = minJoin.toLocaleDateString('en-KE', {day:'2-digit', month:'short', year:'numeric'});
-            $('#doj_hint').html(
-                '<span style="color:#0D1A63;font-weight:600">✓ Earliest joining date: ' + minDisplay + '</span>' +
-                ' &nbsp;|&nbsp; Cannot be a future date.'
-            );
-        }
-
-        // Run on DOB change
-        $('#date_of_birth').on('change', function() {
-            updateDojConstraints();
-        });
-
-        // Validate DOJ on change too
-        $('#date_of_joining').on('change', function() {
-            var dob = $('#date_of_birth').val();
-            var doj = $(this).val();
-            if (!dob) {
-                alert('Please enter Date of Birth first.');
-                $(this).val('');
-                return;
-            }
-            var dobDate = new Date(dob);
-            var minJoin = new Date(dobDate);
-            minJoin.setFullYear(minJoin.getFullYear() + 18);
-            var todayDate = new Date(today);
-
-            if (new Date(doj) < minJoin) {
-                alert('Date of Joining must be at least 18 years after Date of Birth.');
-                $(this).val('');
-            } else if (new Date(doj) > todayDate) {
-                alert('Date of Joining cannot be a future date.');
-                $(this).val('');
-            }
-        });
-
-        // On page load, re-apply constraints if DOB was already set (after failed submit)
-        if ($('#date_of_birth').val()) {
-            updateDojConstraints();
-        }
-
-        // ── Facility → County / Subcounty / Level AJAX ─────────────────────
+        // Facility → County / Subcounty / Level AJAX
         $('#facility').change(function() {
             var facility_name = $(this).val();
 
@@ -518,19 +480,18 @@ if (isset($_POST['submit'])) {
                     data: {facility_name: facility_name},
                     dataType: 'json',
                     success: function(data) {
-                        if (!data.error) {
+                        if (data && !data.error) {
                             $('#county').val(data.county_name || '');
                             $('#subcounty').val(data.subcounty_name || '');
                             $('#level').val(data.level_of_care_name || '');
-                        } else {
-                            alert('Error: ' + data.error);
+                        } else if (data && data.error) {
+                            console.error('Error:', data.error);
                             $('#county, #subcounty, #level').val('');
                         }
                     },
                     error: function(xhr, status, error) {
-                        console.log('AJAX Error:', error);
-                        console.log('Response:', xhr.responseText);
-                        alert('Error fetching facility details. Please check console.');
+                        console.error('AJAX Error:', error);
+                        console.error('Response:', xhr.responseText);
                         $('#county, #subcounty, #level').val('');
                     }
                 });

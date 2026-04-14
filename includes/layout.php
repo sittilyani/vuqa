@@ -216,7 +216,7 @@ if (!$isAllowed) {
             <div class="nav-menu">
                 <!-- Main Navigation -->
                 <div class="nav-section">
-                    <div class="nav-section-title">Admin</div>
+                    <div class="nav-section-title">Human Resource</div>
                     <?php if ($canAccessDashboard): ?>
 
                     <div class="nav-item">

@@ -1,7 +1,7 @@
 <?php
 session_start();
 
-// TEMPORARY DEBUG - REMOVE AFTER FIXING
+// TEMPORARY DEBUG
 error_reporting(E_ALL);
 ini_set('display_errors', 1); // Temporarily turn ON for debugging
 
@@ -384,6 +384,54 @@ $positions = $conn->query("SELECT positionname FROM positions ORDER BY positionn
         .checkbox-2col input[type="checkbox"] {
             accent-color: #0D1A63; width: 16px; height: 16px;
         }
+        /* Checkbox Group Styles */
+        .checkbox-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-top: 8px;
+        }
+
+        .checkbox-option {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            padding: 6px 12px;
+            background: #f8fafc;
+            border-radius: 30px;
+            transition: all .2s;
+            border: 1px solid #e0e4f0;
+        }
+
+        .checkbox-option:hover {
+            background: #e8edf8;
+            border-color: #0D1A63;
+        }
+
+        .checkbox-option input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            accent-color: #0D1A63;
+            cursor: pointer;
+            margin: 0;
+        }
+
+        .checkbox-option span {
+            font-size: 13px;
+            color: #333;
+            font-weight: 500;
+        }
+
+        /* When checkbox is checked, highlight the option */
+        .checkbox-option:has(input[type="checkbox"]:checked) {
+            background: #0D1A63;
+            border-color: #0D1A63;
+        }
+
+        .checkbox-option:has(input[type="checkbox"]:checked) span {
+            color: #fff;
+        }
 
         .training-entry {
             background: #f8f9fc; border: 1px solid #e0e4f0;
@@ -474,7 +522,7 @@ $positions = $conn->query("SELECT positionname FROM positions ORDER BY positionn
 
         <!-- SECTION 1: Staff Selection -->
         <div class="card">
-            <div class="card-head"><i class="fas fa-user-search"></i> Step 1 — Select Staff Member</div>
+            <div class="card-head"><i class="fas fa-user-search"></i> Step 1: Select Staff to assess <span style="font-style:italic; color: white; font-size: 14px;">(If the staff is not avalable - please )</span><a href="../staff/initial_participant_registration.php"><span style="color:yellow;">Register staff</span></a></div>
             <div class="card-body">
                 <div class="search-wrap" id="staffSearchWrap">
                     <input type="text" id="staffSearch"
@@ -637,7 +685,7 @@ $positions = $conn->query("SELECT positionname FROM positions ORDER BY positionn
             <div class="card-head"><i class="fas fa-tasks"></i> Job Content</div>
             <div class="card-body">
                 <div class="form-group">
-                    <label for="duties_responsibilities">i. What are your duties and responsibilities?</label>
+                    <label for="duties_responsibilities">i. What are your duties and responsibilities in HIV/TB/MNCH management?</label>
                     <textarea id="duties_responsibilities" name="duties_responsibilities" class="form-control"></textarea>
                 </div>
                 <div class="form-group">
@@ -667,15 +715,36 @@ $positions = $conn->query("SELECT positionname FROM positions ORDER BY positionn
                     <textarea id="skills_explanation" name="skills_explanation" class="form-control"></textarea>
                 </div>
                 <div class="form-group">
-                    <label>vi. How did you acquire the skills that enable you perform your duties?</label>
-                    <div class="radio-group">
-                        <label class="radio-option"><input type="radio" name="skills_acquisition" value="Experience"> Experience</label>
-                        <label class="radio-option"><input type="radio" name="skills_acquisition" value="Attachment"> Attachment</label>
-                        <label class="radio-option"><input type="radio" name="skills_acquisition" value="Training"> Training</label>
-                        <label class="radio-option"><input type="radio" name="skills_acquisition" value="Mentorship"> Mentorship</label>
-                        <label class="radio-option"><input type="radio" name="skills_acquisition" value="Induction"> Induction</label>
-                        <label class="radio-option"><input type="radio" name="skills_acquisition" value="Research"> Research</label>
+                    <label>vi. How did you acquire the skills that enable you to perform your duties? (Select all that apply)</label>
+                    <div class="checkbox-group">
+                        <label class="checkbox-option">
+                            <input type="checkbox" name="skills_acquisition[]" value="Experience">
+                            <span>Experience</span>
+                        </label>
+                        <label class="checkbox-option">
+                            <input type="checkbox" name="skills_acquisition[]" value="Attachment">
+                            <span>Attachment</span>
+                        </label>
+                        <label class="checkbox-option">
+                            <input type="checkbox" name="skills_acquisition[]" value="Training">
+                            <span>Training</span>
+                        </label>
+                        <label class="checkbox-option">
+                            <input type="checkbox" name="skills_acquisition[]" value="Mentorship">
+                            <span>Mentorship</span>
+                        </label>
+                        <label class="checkbox-option">
+                            <input type="checkbox" name="skills_acquisition[]" value="Induction">
+                            <span>Induction</span>
+                        </label>
+                        <label class="checkbox-option">
+                            <input type="checkbox" name="skills_acquisition[]" value="Research">
+                            <span>Research</span>
+                        </label>
                     </div>
+                    <small style="color: #666; font-size: 11px; display: block; margin-top: 8px;">
+                        <i class="fas fa-info-circle"></i> Check all that apply
+                    </small>
                 </div>
 
                 <!-- Challenge Scale -->
@@ -808,7 +877,7 @@ $positions = $conn->query("SELECT positionname FROM positions ORDER BY positionn
                 </div>
 
                 <div class="form-group">
-                    <label style="font-weight:700;font-size:14px">iv. From the following core competences, please tick the ones you have been trained on:</label>
+                    <label style="font-weight:700;font-size:14px">iv. From the list below, please select the core competences that you posses:</label>
                     <div class="checkbox-2col">
                         <?php
                         $competences = [
@@ -848,7 +917,7 @@ $positions = $conn->query("SELECT positionname FROM positions ORDER BY positionn
             <div class="card-head"><i class="fas fa-chalkboard-teacher"></i> Training</div>
             <div class="card-body">
                 <div class="form-group">
-                    <label>i. (a) Have you attended any training sponsored by the County Government?</label>
+                    <label>i. (a) Have you attended any HIV/TB/MNCH training?</label>
                     <div class="radio-group">
                         <label class="radio-option"><input type="radio" name="attended_training" value="Yes"> Yes</label>
                         <label class="radio-option"><input type="radio" name="attended_training" value="No"> No</label>

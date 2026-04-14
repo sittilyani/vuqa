@@ -246,8 +246,7 @@ if (isset($_POST['submit'])) {
 <body>
     <div class="container">
         <div class="header">
-            <h2>➕ Initial participant registration</h2>
-            <p>This participant is registered ONLY once</p>
+            <h2>➕ Add New Staff Member</h2>
         </div>
 
         <div class="content">
