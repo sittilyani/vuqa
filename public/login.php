@@ -116,7 +116,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         body {
             font-family: 'Segoe UI', 'Roboto', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #2c0b8e 0%, #3F10CB 100%);
             height: 100vh;
             display: flex;
             flex-direction: column;
@@ -287,7 +286,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             bottom: 0;
             left: 0;
             width: 100%;
-            background: #ffffff;
+            background: #4E95D9;
             border-top: 1px solid rgba(0, 0, 0, 0.08);
             padding: 0.9rem 1.5rem;
             z-index: 1000;
@@ -307,7 +306,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         .footer-text {
             font-size: clamp(0.7rem, 3vw, 0.85rem);
-            color: #4a5568;
+            color: #FFF;
             line-height: 1.4;
             flex: 1;
             text-align: left;
@@ -410,8 +409,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     <div class="login-container">
 
-        <img src="../assets/images/Logo-round-nobg-2.png" width="102" height="102" alt="">
-        <h2>Welcome Back</h2>
+        <img src="../assets/images/transition-logo.png" width="102" height="102" alt="">
+        <h4>Welcome Back</h4>
         <p style="color: #666; margin-bottom: 25px;">Please login to your account</p>
 
         <?php if (!empty($error_message)): ?>
@@ -440,14 +439,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <footer class="footer">
         <div class="footer-content">
             <div class="footer-text">
-                Trainings and mentorship monitoring - developed by LVCTHealth - Stawisha Pwani Project
-                <?php echo date('Y');?> - &copy; LVCT@20
+                Transition & Integration Monitoring - developed by LVCTHealth
+                <?php echo date('Y');?> - &copy; lvcthealth
             </div>
 
             <div class="social-links">
                 <a href="https://web.facebook.com/LVCTHealth/" target="_blank"><i class="fab fa-facebook"></i></a>
                 <a href="https://www.youtube.com/user/TheLVCT" target="_blank"><i class="fab fa-youtube"></i></a>
-                <a href="https://x.com/LVCTKe" target="_blank"><i class="fab fa-x-twitter"></i></a>
+                <a href="https://x.com/LVCTKe" target="_blank"><i class="fab fa-twitter" style="color: blue;"></i></a>
                 <a href="https://www.instagram.com/lvct_health/" target="_blank"><i class="fab fa-instagram"></i></a>
                 <a href="https://www.linkedin.com/company/lvcthealth/" target="_blank"><i class="fab fa-linkedin"></i></a>
             </div>

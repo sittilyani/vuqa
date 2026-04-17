@@ -60,7 +60,7 @@ unset($_SESSION['success_msg'],$_SESSION['error_msg']);
 <html lang="en">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Integration Assessments</title>
+<title>Facility Integration Assessments</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 <style>
 :root{--navy:#0D1A63;--navy2:#1a3a9e;--teal:#0ABFBC;--green:#27AE60;--amber:#F5A623;--rose:#E74C3C;--bg:#f0f2f7;--card:#fff;--border:#e2e8f0;--muted:#6B7280;--shadow:0 2px 16px rgba(13,26,99,.07);}
@@ -129,7 +129,7 @@ tr:hover td{background:#f8faff;}
 <div class="container">
 
 <div class="page-header">
-    <h1><i class="fas fa-clipboard-list"></i> Integration Assessments</h1>
+    <h1><i class="fas fa-clipboard-list"></i> Facility Integration Assessments Results</h1>
     <div class="hdr-links">
         <a href="integration_assessment.php"><i class="fas fa-plus"></i> New Assessment</a>
         <a href="integration_dashboard.php"><i class="fas fa-chart-bar"></i> Dashboard</a>

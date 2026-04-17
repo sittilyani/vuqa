@@ -1,5 +1,5 @@
 <?php
-// integrations/integration_assessment.php
+// integrations/facility_integration_assessment.php
 session_start();
 include('../includes/config.php');
 include('../includes/session_check.php');
@@ -249,7 +249,7 @@ if (isset($_POST['ajax_submit'])) {
             "UPDATE integration_assessments SET assessment_status='Submitted',
              last_saved_by='".mysqli_real_escape_string($conn,$collected_by)."',
              last_saved_at=NOW() WHERE assessment_id=$aid");
-        echo json_encode(['success'=>true,'redirect'=>'integration_assessment_list.php']);
+        echo json_encode(['success'=>true,'redirect'=>'facility_integration_assessment_list.php']);
     } else {
         echo json_encode(['success'=>false,'error'=>'No assessment ID']);
     }
@@ -303,7 +303,7 @@ $e_data = $existing ?? [];
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Integration Assessment Tool</title>
+<title>Facility Integration Assessment Tool</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 <style>
 :root{
@@ -403,7 +403,7 @@ body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:var(--bg
 .form-group{margin-bottom:14px;}
 .form-group.full{grid-column:1/-1;}
 .form-group label{display:block;margin-bottom:5px;font-weight:600;color:#374151;font-size:13px;}
-.hint{font-size:11px;color:#6B7280;font-style:italic;margin-bottom:6px;padding:4px 10px;
+.hint{font-size:11px;color:blue;font-style:italic;margin-bottom:6px;padding:4px 10px;
     background:#f8fafc;border-left:3px solid var(--teal);border-radius:0 4px 4px 0;}
 .req{color:var(--rose);}
 .form-control,.form-select{width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:7px;
@@ -496,7 +496,7 @@ textarea.form-control{min-height:80px;resize:vertical;}
 
 <!-- Header -->
 <div class="page-header">
-    <h1><i class="fas fa-clipboard-check"></i> Integration Assessment Tool</h1>
+    <h1><i class="fas fa-clipboard-check"></i>Facility Integration Assessment Tool</h1>
     <div class="hdr-links">
         <a href="integration_assessment_list.php"><i class="fas fa-list"></i> All Assessments</a>
         <?php if ($edit_id): ?>
@@ -565,7 +565,8 @@ textarea.form-control{min-height:80px;resize:vertical;}
 
         <div class="form-group">
             <label>Facility <span class="req">*</span></label>
-            <div class="hint">Type facility name or MFL code to search. Selecting a facility auto-fills all location fields.</div>
+            <div class="hint">Type facility name or MFL code to search. Selecting a facility auto-fills all location fields.<span style="color: red; font-weight: bold;">MFL Code is precise</span></div>
+
             <div class="search-wrap" id="facSearchWrap">
                 <input type="text" id="facilitySearch" placeholder="Type facility name or MFL code..."
                        autocomplete="off" value="<?= v('facility_name',$e_data) ?>">
@@ -611,8 +612,8 @@ textarea.form-control{min-height:80px;resize:vertical;}
 
         <div class="form-grid" style="margin-top:16px">
             <div class="form-group">
-                <label>Q7. Is this facility supported by US DoS IP?</label>
-                <div class="hint">Select Yes if supported by a US Department of State Implementing Partner</div>
+                <label>Q7. Is this facility supported by US DoS/CDC/DOW IP?</label>
+                <div class="hint">Select Yes if supported by a US Department of State/Centres for Disease Control or Department of War Implementing Partner?</div>
                 <div class="yn-group">
                     <label class="yn-opt"><input type="radio" name="s1_supported_by_usdos_ip" value="Yes" <?= chk('supported_by_usdos_ip','Yes',$e_data) ?>> Yes</label>
                     <label class="yn-opt"><input type="radio" name="s1_supported_by_usdos_ip" value="No" <?= chk('supported_by_usdos_ip','No',$e_data) ?>> No</label>
@@ -644,7 +645,8 @@ textarea.form-control{min-height:80px;resize:vertical;}
     <div class="section-body">
         <div class="form-group">
             <label>Q9. Has the facility integrated HIV/TB services within OPD or Chronic Care model?</label>
-            <div class="hint">Select YES if HIV/TB services are integrated in OPD or a clinical care model</div>
+            <div class="hint">Please select YES, if the health facility has Integrated HIV/TB services within OPD or clinical care model,or NO if it has not.</div>
+
             <div class="yn-group">
                 <label class="yn-opt"><input type="radio" name="s2a_hiv_tb_integrated" value="Yes" <?= chk('hiv_tb_integrated','Yes',$e_data) ?>> Yes</label>
                 <label class="yn-opt"><input type="radio" name="s2a_hiv_tb_integrated" value="No" <?= chk('hiv_tb_integrated','No',$e_data) ?>> No</label>
@@ -652,14 +654,19 @@ textarea.form-control{min-height:80px;resize:vertical;}
         </div>
         <div class="form-group">
             <label>Q10. If yes, specify the integration model</label>
-            <div class="hint">e.g. OPD integration, Chronic Care Centre, One-Stop Shop, Differentiated Service Delivery</div>
+            <div class="hint">
+                <p>The integration models are based on the  national blue print and integration advisory memo. </p>
+                <p>It includes the following models and their descriptions.</p>
+                <p>OPD - HIV and TB services integrated in OPD</p>
+                <p>Chronic Care Center - This model refers to HIV/ TB services provided in the chronic care centers</p>
+            </div>
             <input type="text" name="s2a_hiv_tb_integration_model" class="form-control" value="<?= v('hiv_tb_integration_model',$e_data) ?>" placeholder="e.g. OPD, Chronic Care Center, DSD...">
         </div>
         <div class="form-grid-3">
             <?php foreach([
-                ['s2a_tx_curr','tx_curr','Q11. TX_CURR (last reporting month)','Current on Treatment — last month reported'],
-                ['s2a_tx_curr_pmtct','tx_curr_pmtct','Q12. TX_CURR PMTCT','Current on Treatment for PMTCT — last month'],
-                ['s2a_plhiv_integrated_care','plhiv_integrated_care','Q13. PLHIVs in integrated care','Total PLHIVs receiving HIV/TB care through integrated models'],
+                ['s2a_tx_curr','tx_curr','Q11. TX_CURR (last reporting month)','Indicate the Current on Treatment —reported last month to the baseline'],
+                ['s2a_tx_curr_pmtct','tx_curr_pmtct','Q12. TX_CURR PMTCT','Indicate the Current on Treatment for PMTCT — reported last month to the baseline'],
+                ['s2a_plhiv_integrated_care','plhiv_integrated_care','Q13. PLHIVs in integrated care','Indicate the total number of PLHIVs receiving HIV/TB care through integrated service models from the health facility that has integrated HIV/TB services.'],
             ] as [$fn,$db,$lbl,$hint]): ?>
             <div class="form-group">
                 <label><?= $lbl ?></label>
@@ -685,13 +692,13 @@ textarea.form-control{min-height:80px;resize:vertical;}
     <div class="section-body">
         <div class="form-grid">
         <?php $q2b = [
-            ['Q14','s2b_pmtct_integrated_mnch','pmtct_integrated_mnch','Has the facility integrated PMTCT in MNCH?','Select YES if PMTCT services are integrated within Maternal and Newborn Child Health'],
-            ['Q15','s2b_hts_integrated_opd','hts_integrated_opd','Has the facility integrated HTS in OPD?','Select YES if HIV Testing Services are offered at OPD'],
-            ['Q16','s2b_hts_integrated_ipd','hts_integrated_ipd','Has the facility integrated HTS in IPD?','Select YES if HIV Testing Services are offered at In-Patient Department'],
-            ['Q17','s2b_hts_integrated_mnch','hts_integrated_mnch','Has the facility integrated HTS in MNCH?','Select YES if HIV Testing Services are offered within MNCH'],
-            ['Q18','s2b_prep_integrated_opd','prep_integrated_opd','Has the facility integrated PrEP in OPD?','Select YES if PrEP services are offered at OPD'],
-            ['Q19','s2b_prep_integrated_ipd','prep_integrated_ipd','Has the facility integrated PrEP in IPD?','Select YES if PrEP is available at In-Patient Department'],
-            ['Q20','s2b_prep_integrated_mnch','prep_integrated_mnch','Has the facility integrated PrEP in MNCH?','Select YES if PrEP services are offered within MNCH'],
+            ['Q14','s2b_pmtct_integrated_mnch','pmtct_integrated_mnch','Has the facility integrated PMTCT in MNCH?','Select YES if the health facility has integrated PMTCT services in MNCH, or NO if not, or Not Applicable'],
+            ['Q15','s2b_hts_integrated_opd','hts_integrated_opd','Has the facility integrated HTS in OPD?','Select YES if the health facility has integrated HTS services in OPD, or NO if not, or Not Applicable'],
+            ['Q16','s2b_hts_integrated_ipd','hts_integrated_ipd','Has the facility integrated HTS in IPD?','Select YES if the health facility has integrated HTS services in IPD, or NO if not, or Not Applicable'],
+            ['Q17','s2b_hts_integrated_mnch','hts_integrated_mnch','Has the facility integrated HTS in MNCH?','Select YES if the health facility has integrated HTS services in MNCH, or NO if not, or Not Applicable'],
+            ['Q18','s2b_prep_integrated_opd','prep_integrated_opd','Has the facility integrated PrEP in OPD?','Select YES if the health facility integrated HIV Prevention services (HTS & PrEP) in OPD, or NO if not, or Not Applicable'],
+            ['Q19','s2b_prep_integrated_ipd','prep_integrated_ipd','Has the facility integrated PrEP in IPD?','Select YES if the health facility integrated HIV Prevention services (HTS & PrEP) in IPD, or NO if not, or Not Applicable'],
+            ['Q20','s2b_prep_integrated_mnch','prep_integrated_mnch','Has the facility integrated PrEP in MNCH?','Select YES if the health facility integrated HIV Prevention services (HTS & PrEP) in MNCH, or NO if not, or Not Applicable'],
         ];
         foreach ($q2b as [$qn,$fn,$db,$lbl,$hint]): ?>
         <div class="form-group">
@@ -721,6 +728,7 @@ textarea.form-control{min-height:80px;resize:vertical;}
         <div class="form-grid">
             <div class="form-group">
                 <label>Q21. Does this facility use any EMR system?</label>
+                <div class="hint">Select YES if the health facility is using any EMR system or NO if not</div>
                 <div class="yn-group">
                     <label class="yn-opt"><input type="radio" name="s2c_uses_emr" value="Yes" id="uses_emr_yes" <?= chk('uses_emr','Yes',$e_data) ?>> Yes</label>
                     <label class="yn-opt"><input type="radio" name="s2c_uses_emr" value="No" id="uses_emr_no" <?= chk('uses_emr','No',$e_data) ?>> No</label>
@@ -728,6 +736,12 @@ textarea.form-control{min-height:80px;resize:vertical;}
             </div>
             <div class="form-group">
                 <label>Q24. Facility has a single unified EMR system?</label>
+                <div class="hint">Select YES if the health facility has a single unified EMR system, or NO if the facility doesn’t have.</div>
+                <p style="font-size: 12px;"><span style="font-weight:bold;">Definition of single unified EMR system:</span></p>
+                <P style="font-size: 12px;">A single unified EMR system refers to a hospital or facility wide EMR system that is the only sole EMR system being used across all the SDPs</p>
+                <p style="font-size: 12px;"><span style="font-style:italic;">(including OPD, IPD, MNCH, CCC, finance and billing management, commodity management etc.).</span></p>
+                <p style="font-size: 12px;">No other EMR system is in use in the site other than the one being referred to as the single unified EMR system.</p>
+                <p style="font-size: 12px;"><span style="font-weight:bold; color: red;">Note:</span> A site is said to have a single unified EMR if there is no parallel EMR system at the health facility and only uses one (same) EMR system across all points at the facility.</p>
                 <div class="yn-group">
                     <label class="yn-opt"><input type="radio" name="s2c_single_unified_emr" value="Yes" <?= chk('single_unified_emr','Yes',$e_data) ?>> Yes</label>
                     <label class="yn-opt"><input type="radio" name="s2c_single_unified_emr" value="No" <?= chk('single_unified_emr','No',$e_data) ?>> No</label>
@@ -741,9 +755,9 @@ textarea.form-control{min-height:80px;resize:vertical;}
                     <div class="emr-entry-header"><span class="emr-num">EMR System 1</span></div>
                     <div class="form-grid-3">
                         <div class="form-group"><label>EMR Type / Name</label>
-                            <input type="text" name="s2c_emr_type[]" class="form-control" placeholder="e.g. KenyaEMR, OpenMRS"></div>
+                            <input type="text" name="s2c_emr_type[]" class="form-control" placeholder="e.g. KenyaEMR, Tiberbu, AfyaKE"></div>
                         <div class="form-group"><label>Funded By</label>
-                            <input type="text" name="s2c_emr_funded_by[]" class="form-control" placeholder="e.g. PEPFAR, Government"></div>
+                            <input type="text" name="s2c_emr_funded_by[]" class="form-control" placeholder="e.g. PEPFAR, National Government, County Government, Facility, Private Partner"></div>
                         <div class="form-group"><label>Date Started</label>
                             <input type="date" name="s2c_emr_date_started[]" class="form-control"></div>
                     </div>
@@ -766,7 +780,9 @@ textarea.form-control{min-height:80px;resize:vertical;}
                 </div>
             </div>
         </div>
-        <div class="sub-label" style="margin-top:18px"><i class="fas fa-hospital-alt"></i> EMR by Department</div>
+        <div class="sub-label" style="margin-top:18px"><i class="fas fa-hospital-alt"></i> TaifaCare powered by KenyaEMR(OpenMRS) use by Department</div>
+        <div class="hint">Please select <span style="font-weight: bold;">YES</span> if the type of EMR is Taifacare powered by KenyaEMR that has HIV/TB module but No if other type of EMR that does not integrate HIV/TB patient management</div>
+        <div class="hint">For other EMR systems please specify</div>
         <?php $depts=[
             ['Q25','s2c_emr_at_opd','emr_at_opd','s2c_emr_opd_other','emr_opd_other','OPD'],
             ['Q27','s2c_emr_at_ipd','emr_at_ipd','s2c_emr_ipd_other','emr_ipd_other','IPD'],
@@ -805,8 +821,9 @@ textarea.form-control{min-height:80px;resize:vertical;}
             <?php endforeach; ?>
             <div class="form-group">
                 <label>Q38. Tibu Lite (LIMS) in use?</label>
+                <div class="hint">Select Yes if Tibu lite is used in the facility, or no if not</div>
                 <div class="yn-group">
-                    <?php foreach(['Yes','No','Partial'] as $opt): ?>
+                    <?php foreach(['Yes','No'] as $opt): ?>
                     <label class="yn-opt"><input type="radio" name="s2c_tibu_lite_lims_in_use" value="<?= $opt ?>" <?= chk('tibu_lite_lims_in_use',$opt,$e_data) ?>> <?= $opt ?></label>
                     <?php endforeach; ?>
                 </div>
@@ -826,12 +843,13 @@ textarea.form-control{min-height:80px;resize:vertical;}
     </div>
     <div class="section-body">
         <div class="sub-label">Total HCWs Supported by PEPFAR IP</div>
+        <div class="hint">Indicate the number of HCWs supported by PEPFAR Implementing Partner</div>
         <div class="form-grid-3">
         <?php foreach([
             ['s3_hcw_total_pepfar','hcw_total_pepfar','Q43. Total HCWs supported by PEPFAR IP'],
             ['s3_hcw_clinical_pepfar','hcw_clinical_pepfar','Q44. Clinical Staff'],
-            ['s3_hcw_nonclinical_pepfar','hcw_nonclinical_pepfar','Q45. Non-Clinical Staff'],
-            ['s3_hcw_data_pepfar','hcw_data_pepfar','Q46. Data Staff'],
+            ['s3_hcw_nonclinical_pepfar','hcw_nonclinical_pepfar','Q45. Non-Clinical Staff(Mentor mothers, Peer Educators, Accountants etc)'],
+            ['s3_hcw_data_pepfar','hcw_data_pepfar','Q46. Data Staff(Data clerks, HRIOs etc)'],
             ['s3_hcw_community_pepfar','hcw_community_pepfar','Q47. Community-based Staff'],
             ['s3_hcw_other_pepfar','hcw_other_pepfar','Q48. Other'],
         ] as [$fn,$db,$lbl]): ?>
@@ -841,7 +859,10 @@ textarea.form-control{min-height:80px;resize:vertical;}
         </div>
         <?php endforeach; ?>
         </div>
-        <div class="sub-label">HCWs Transitioned to County Support</div>
+        <div class="sub-label">HCWs Transitioned to County Support(Workforce Transition)</div>
+        <div class="hint">
+            <span style="color: red; font-weight: bold;">Note:</span> The HCW tranistion to County support refers to those HCWs who were previously supported by PEPFAR IP and were absorped or tranisitioned to County payroll <span style="font-weight: bold; font-style: italic;">regardless of the roles they are undertaking</span> at the facility or County.  Thus, reporting is not only limited to those HWCs who have transitioned from PEPFAR support to County payroll support and still continue with providing HIV services in supported facility or facilities in the County but also those undertaking other roles other than HIV service provision geared towards provision of health service integration.
+        </div>
         <div class="form-grid-3">
         <?php foreach([
             ['s3_hcw_transitioned_clinical','hcw_transitioned_clinical','Q50. Clinical Staff'],
@@ -864,6 +885,7 @@ textarea.form-control{min-height:80px;resize:vertical;}
 <div class="form-section" id="sec_s4">
     <div class="section-head">
         <div class="section-head-left"><i class="fas fa-id-card"></i> Section 4: PLHIV &amp; PBFW Enrollment into SHA</div>
+        <div class="hint">Get this information from the administrator or the available EMR</div>
         <div class="section-head-right">
             <span class="saved-badge <?= in_array('s4',$sections_saved)?'show':'' ?>" id="badge_s4"><i class="fas fa-check"></i> Saved</span>
         </div>
@@ -871,10 +893,10 @@ textarea.form-control{min-height:80px;resize:vertical;}
     <div class="section-body">
         <div class="form-grid-3">
         <?php foreach([
-            ['s4_plhiv_enrolled_sha','plhiv_enrolled_sha','Q56. Total PLHIVs enrolled into SHA'],
-            ['s4_plhiv_sha_premium_paid','plhiv_sha_premium_paid','Q57. PLHIVs with premium fully paid'],
-            ['s4_pbfw_enrolled_sha','pbfw_enrolled_sha','Q58. PBFW enrolled into SHA'],
-            ['s4_pbfw_sha_premium_paid','pbfw_sha_premium_paid','Q59. PBFW with premium fully paid'],
+            ['s4_plhiv_enrolled_sha','plhiv_enrolled_sha','Q56. Indicate the total number of PLHIVs enrolled into SHA'],
+            ['s4_plhiv_sha_premium_paid','plhiv_sha_premium_paid','Q57. Indicate the total number of PLHIVs with premium SHA fully paid'],
+            ['s4_pbfw_enrolled_sha','pbfw_enrolled_sha','Q58. Indicate the total number of PBFW enrolled/registered into SHA'],
+            ['s4_pbfw_sha_premium_paid','pbfw_sha_premium_paid','Q59. Indicate the total number of PBFW with premium SHA fully paid'],
         ] as [$fn,$db,$lbl]): ?>
         <div class="form-group">
             <label><?= $lbl ?></label>
@@ -884,8 +906,8 @@ textarea.form-control{min-height:80px;resize:vertical;}
         </div>
         <div class="form-grid">
         <?php foreach([
-            ['Q60','s4_sha_claims_submitted_ontime','sha_claims_submitted_ontime','Facility submitting SHA claims on time?'],
-            ['Q61','s4_sha_reimbursements_monthly','sha_reimbursements_monthly','Received SHA reimbursements consistently (last 3 months)?'],
+            ['Q60','s4_sha_claims_submitted_ontime','sha_claims_submitted_ontime','Has the facility been submitting SHA claims on time? <span style="font-style: italic; color: blue;">Select YES if the health facility been submitting SHA claims on time, or NO if it has not.</span>'],
+            ['Q61','s4_sha_reimbursements_monthly','sha_reimbursements_monthly','Has the facility received any SHA reimbursements in the last 3 months?<span style="font-style: italic; color: blue;">Select YES if the health facility has received SHA reimbursements in the last 3 months, or NO if it has not.</span>'],
         ] as [$qn,$fn,$db,$lbl]): ?>
         <div class="form-group">
             <label><?= $qn ?>. <?= $lbl ?></label>
@@ -904,6 +926,7 @@ textarea.form-control{min-height:80px;resize:vertical;}
 <div class="form-section" id="sec_s5">
     <div class="section-head">
         <div class="section-head-left"><i class="fas fa-chalkboard-teacher"></i> Section 5: County TA / Mentorship</div>
+        <div class="hint">This is mentorship done by any USG supported partner on HIV/TB/RMNCH</div>
         <div class="section-head-right">
             <span class="saved-badge <?= in_array('s5',$sections_saved)?'show':'' ?>" id="badge_s5"><i class="fas fa-check"></i> Saved</span>
         </div>
@@ -912,10 +935,12 @@ textarea.form-control{min-height:80px;resize:vertical;}
         <div class="form-grid">
             <div class="form-group">
                 <label>Q62. TA/Mentorship visits on HIV/TB/PMTCT in last 3 months (total)</label>
+                <div class="hint">Indicate the number of TA/Mentorship visits on HIV Prevention, HIV/TB services, and PMTCT services were done at the facility in the last 3 months</div>
                 <input type="number" name="s5_ta_visits_total" class="form-control" min="0" placeholder="0" value="<?= v('ta_visits_total',$e_data) ?>">
             </div>
             <div class="form-group">
                 <label>Q63. Of total TA visits, how many were by MOH only (without IP staff)?</label>
+                <div class="hint">Indicate if the total TA/ Mentorships visits, how many were done by the MOH only (County / Sub-County teams alone without IP staff</div>
                 <input type="number" name="s5_ta_visits_moh_only" class="form-control" min="0" placeholder="0" value="<?= v('ta_visits_moh_only',$e_data) ?>">
             </div>
         </div>
@@ -934,9 +959,9 @@ textarea.form-control{min-height:80px;resize:vertical;}
     <div class="section-body">
         <div class="form-grid">
         <?php foreach([
-            ['Q64','s6_fif_collection_in_place','fif_collection_in_place','Does the facility have a FIF collection mechanism?'],
-            ['Q65','s6_fif_includes_hiv_tb_pmtct','fif_includes_hiv_tb_pmtct','FIF collection incorporates HIV/TB, PMTCT & MNCH services?'],
-            ['Q66','s6_sha_capitation_hiv_tb','sha_capitation_hiv_tb','Is facility receiving SHA capitation for HIV/TB, PMTCT & MNCH?'],
+            ['Q64','s6_fif_collection_in_place','fif_collection_in_place','Does the facility have a FIF collection mechanism? Please select YES if the health facility has FIF collection in place, or NO if it does not. <span style="font-weight: bold">For private facilities that charge for all services, select YES</span>'],
+            ['Q65','s6_fif_includes_hiv_tb_pmtct','fif_includes_hiv_tb_pmtct','FIF collection incorporates HIV/TB, PMTCT & MNCH services? <span style="font-weight: bold">Please select YES if the FIF collection has incorporated HIV/TB services, or NO if it has not.</span>'],
+            ['Q66','s6_sha_capitation_hiv_tb','sha_capitation_hiv_tb','Is facility receiving SHA capitation for HIV/TB, PMTCT & MNCH? <span style="font-weight: bold">Please select YES if the health facility receiving SHA capitation for HIV/TB services, or NO if it is not.</span>'],
         ] as [$qn,$fn,$db,$lbl]): ?>
         <div class="form-group">
             <label><?= $qn ?>. <?= $lbl ?></label>
@@ -962,7 +987,7 @@ textarea.form-control{min-height:80px;resize:vertical;}
     <div class="section-body">
         <div class="form-grid-3">
         <?php foreach([
-            ['s7_deaths_all_cause','deaths_all_cause','Q67. Total deaths (all-cause mortality)'],
+            ['s7_deaths_all_cause','deaths_all_cause','Q67. Total deaths (all-cause mortality)Indicate the Number of deaths from any cause in the quarter (Jan 26 - Mar 26)'],
             ['s7_deaths_hiv_related','deaths_hiv_related','Q68. HIV-related deaths'],
             ['s7_deaths_hiv_pre_art','deaths_hiv_pre_art','Q69. HIV deaths before ART linkage'],
             ['s7_deaths_tb','deaths_tb','Q70. TB deaths'],
@@ -1316,7 +1341,7 @@ facInput.addEventListener('input', debounce(async function() {
     if (q.length < 2) { facResults.style.display='none'; return; }
     facSpinner.style.display='block'; facIcon.style.display='none';
     try {
-        const rows = await fetch(`integration_assessment.php?ajax=search_facility&q=${encodeURIComponent(q)}`).then(r=>r.json());
+        const rows = await fetch(`facility_integration_assessment.php?ajax=search_facility&q=${encodeURIComponent(q)}`).then(r=>r.json());
         facSpinner.style.display='none'; facIcon.style.display='block';
         if (!rows.length) {
             facResults.innerHTML = '<div class="no-results"><i class="fas fa-search"></i> No facilities found</div>';
@@ -1385,7 +1410,7 @@ document.getElementById('assessment_period').addEventListener('change', async fu
 async function checkExistingAssessment(facilityId, period) {
     try {
         const data = await fetch(
-            `integration_assessment.php?ajax=check_assessment&facility_id=${facilityId}&period=${encodeURIComponent(period)}`
+            `facility_integration_assessment.php?ajax=check_assessment&facility_id=${facilityId}&period=${encodeURIComponent(period)}`
         ).then(r=>r.json());
 
         if (data.exists && data.assessment_id != assessmentId) {
@@ -1393,7 +1418,7 @@ async function checkExistingAssessment(facilityId, period) {
             const total = allSections.length;
             const msg = `An assessment for <strong>${data.facility_name}</strong> — <strong>${period}</strong> already exists (ID #${data.assessment_id}, status: <strong>${data.status}</strong>, ${ss.length}/${total} sections saved).`;
             document.getElementById('dupModalMsg').innerHTML = msg;
-            document.getElementById('dupEditLink').href = `integration_assessment.php?id=${data.assessment_id}`;
+            document.getElementById('dupEditLink').href = `facility_integration_assessment.php?id=${data.assessment_id}`;
 
             // Show section statuses
             const allDefs = <?= json_encode($all_section_defs) ?>;
@@ -1500,7 +1525,7 @@ async function saveSection(sectionKey) {
     });
 
     try {
-        const data = await fetch('integration_assessment.php', {method:'POST', body:fd}).then(r=>r.json());
+        const data = await fetch('facility_integration_assessment.php', {method:'POST', body:fd}).then(r=>r.json());
         if (data.success) {
             assessmentId = data.assessment_id;
             document.getElementById('h_assessment_id').value = assessmentId;
@@ -1516,7 +1541,7 @@ async function saveSection(sectionKey) {
             showToast(data.error || 'Save failed', 'error');
         }
     } catch(e) {
-        showToast('Network error — please try again', 'error');
+        showToast('Error saving section, check network or complete all responses and please try again', 'error');
     }
 
     btn.innerHTML = origTxt;
@@ -1534,7 +1559,7 @@ async function finalSubmit() {
     fd.append('assessment_id', assessmentId);
 
     try {
-        const data = await fetch('integration_assessment.php', {method:'POST', body:fd}).then(r=>r.json());
+        const data = await fetch('facility_integration_assessment.php', {method:'POST', body:fd}).then(r=>r.json());
         if (data.success) {
             showToast('Assessment submitted successfully! Redirecting…', 'success');
             setTimeout(() => window.location.href = data.redirect, 1500);
