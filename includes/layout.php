@@ -360,7 +360,23 @@ if (!$isAllowed) {
                             Self staff trainings update
                         </a>
                     </div>
-
+                </div>
+                <div class="nav-section">
+                    <div class="nav-section-title">Virtual Trainings</div>
+                    <div class="nav-item">
+                        <a href="../virtual_trainings/virtual_trainings_dashboard.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
+                            <img src="../assets/fontawesome/svgs-full/solid/users.svg" alt="" width="16" height="16" style="filter:invert(1)">
+                            Virtual trainings dashboards
+                        </a>
+                        <a href="../virtual_trainings/virtual_trainings_list.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
+                            <img src="../assets/fontawesome/svgs-full/solid/users.svg" alt="" width="16" height="16" style="filter:invert(1)">
+                            Virtual trainings Lists
+                        </a>
+                        <a href="../virtual_trainings/add_virtual_form.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
+                            <img src="../assets/fontawesome/svgs-full/solid/users.svg" alt="" width="16" height="16" style="filter:invert(1)">
+                            Add Virtual trainings
+                        </a>
+                    </div>
                 </div>
 
                 <!-- Assets Section -->

@@ -1,0 +1,302 @@
+list_name,name,label
+subcounty_list,baringo_central,Baringo Central
+subcounty_list,baringo_north,Baringo North
+subcounty_list,baringo_south,Baringo South
+subcounty_list,baringo_ravine,Baringo Ravine
+subcounty_list,baringo_mogotio,Baringo Mogotio
+subcounty_list,baringo_tiaty,Baringo Tiaty
+subcounty_list,bomet_central,Bomet Central
+subcounty_list,bomet_east,Bomet East
+subcounty_list,bomet_chepalungu,Bomet Chepalungu
+subcounty_list,bomet_konoin,Bomet Konoin
+subcounty_list,bomet_sotik,Bomet Sotik
+subcounty_list,bungoma_bumula,Bungoma Bumula
+subcounty_list,bungoma_kabuchai,Bungoma Kabuchai
+subcounty_list,bungoma_kanduyi,Bungoma Kanduyi
+subcounty_list,bungoma_kimilil,Bungoma Kimilil
+subcounty_list,bungoma_elgon,Bungoma Elgon
+subcounty_list,bungoma_sirisia,Bungoma Sirisia
+subcounty_list,bungoma_tongaren,Bungoma Tongaren
+subcounty_list,bungoma_east,Bungoma East
+subcounty_list,bungoma_west,Bungoma West
+subcounty_list,busia_budalangi,Busia Budalangi
+subcounty_list,busia_butula,Busia Butula
+subcounty_list,busia_funyula,Busia Funyula
+subcounty_list,busia_nambele,Busia Nambele
+subcounty_list,busia_north,Busia North
+subcounty_list,busia_south,Busia South
+subcounty_list,elgeyo_marakwet_north,Elgeyo Marakwet North
+subcounty_list,elgeyo_marakwet_south,Elgeyo Marakwet South
+subcounty_list,elgeyo_marakwet_east,Elgeyo Marakwet East
+subcounty_list,elgeyo_marakwet_west,Elgeyo Marakwet West
+subcounty_list,embu_manyatta,Embu Manyatta
+subcounty_list,embu_north,Embu North
+subcounty_list,embu_south,Embu South
+subcounty_list,embu_runyenjes,Embu Runyenjes
+subcounty_list,garissa_daadab,Garissa Daadab
+subcounty_list,garissa_fafi,Garissa Fafi
+subcounty_list,garissa_township,Garissa Township
+subcounty_list,garissa_hulugho,Garissa Hulugho
+subcounty_list,garissa_ijara,Garissa Ijara
+subcounty_list,garissa_lagdera,Garissa Lagdera
+subcounty_list,garissa_balambala,Garissa Balambala
+subcounty_list,homa_bay_town,Homa Bay Town
+subcounty_list,homa_bay_kabondo,Homa Bay Kabondo
+subcounty_list,homa_bay_karachwonyo,Homa Bay Karachwonyo
+subcounty_list,homa_bay_kasipul,Homa Bay Kasipul
+subcounty_list,homa_bay_mbita,Homa Bay Mbita
+subcounty_list,homa_bay_suba,Homa Bay Suba
+subcounty_list,homa bay_rangwe,Homa Bay Rangwe
+subcounty_list,homa bay_suba,Homa Bay Suba
+subcounty_list,isiolo_isiolo,Isiolo Isiolo
+subcounty_list,isiolo_merti,Isiolo Merti
+subcounty_list,isiolo_garbatulla,Isiolo Garbatulla
+subcounty_list,kajiado_isinya,Kajiado Isinya
+subcounty_list,kajiado_central,Kajiado Central
+subcounty_list,kajiado_north,Kajiado North
+subcounty_list,kajiado_loitokitok,Kajiado Loitokitok
+subcounty_list,kajiado_mashuuru,Kajiado Mashuuru
+subcounty_list,kakamega_butere,Kakamega Butere
+subcounty_list,kakamega_central,Kakamega Central
+subcounty_list,kakamega_east,Kakamega East
+subcounty_list,kakamega_north,Kakamega North
+subcounty_list,kakamega_south,Kakamega South
+subcounty_list,kakamega_khwisero,Kakamega Khwisero
+subcounty_list,kakamega_lugari,Kakamega Lugari
+subcounty_list,kakamega_lukuyani,Kakamega Lukuyani
+subcounty_list,kakamega_lurambi,Kakamega Lurambi
+subcounty_list,kakamega_matete,Kakamega Matete
+subcounty_list,kakamega_mumias,Kakamega Mumias
+subcounty_list,kakamega_mutungu,Kakamega Mutungu
+subcounty_list,kakamega_navakholo,Kakamega Navakholo
+subcounty_list,kericho_ainamoi,Kericho Ainamoi
+subcounty_list,kericho_belgut,Kericho Belgut
+subcounty_list,kericho_bureti,Kericho Bureti
+subcounty_list,kericho_east,Kericho East
+subcounty_list,kericho_west,Kericho West
+subcounty_list,kericho_sigowet,Kericho Sigowet
+subcounty_list,kiambu_north,Kiambu North
+subcounty_list,kiambu_south,Kiambu South
+subcounty_list,kiambu_githunguri,Kiambu Githunguri
+subcounty_list,kiambu_juja,Kiambu Juja
+subcounty_list,kiambu_kabete,Kiambu Kabete
+subcounty_list,kiambu_kiambaa,Kiambu Kiambaa
+subcounty_list,kiambu_kiambu,Kiambu Kiambu
+subcounty_list,kiambu_kikuyu,Kiambu Kikuyu
+subcounty_list,kiambu_limuru,Kiambu Limuru
+subcounty_list,kiambu_ruiru,Kiambu Ruiru
+subcounty_list,kiambu_town,Kiambu Town
+subcounty_list,kiambu_lari,Kiambu Lari
+subcounty_list,kilifi_ganze,Kilifi Ganze
+subcounty_list,kilifi_kaloleni,Kilifi Kaloleni
+subcounty_list,kilifi_north,Kilifi North
+subcounty_list,kilifi_south,Kilifi South
+subcounty_list,kilifi_magarini,Kilifi Magarini
+subcounty_list,kilifi_malindi,Kilifi Malindi
+subcounty_list,kilifi_rabai,Kilifi Rabai
+subcounty_list,kirinyaga_central,Kirinyaga Central
+subcounty_list,kirinyaga_east,Kirinyaga East
+subcounty_list,kirinyaga_west,Kirinyaga West
+subcounty_list,kirinyaga_east,Kirinyaga East
+subcounty_list,kirinyaga_west,Kirinyaga West
+subcounty_list,kisii_north,Kisii North
+subcounty_list,kisii_south,Kisii South
+subcounty_list,kisii_masaba,Kisii Masaba
+subcounty_list,kisii_chache,Kisii Chache
+subcounty_list,kisii_borabu,Kisii Borabu
+subcounty_list,kisii_chache,Kisii Chache
+subcounty_list,kisii_bobasi,Kisii Bobasi
+subcounty_list,kisii_mugirango,Kisii Mugirango
+subcounty_list,kisii_bonchari,Kisii Bonchari
+subcounty_list,kisumu_central,Kisumu Central
+subcounty_list,kisumu_east,Kisumu East
+subcounty_list,kisumu_west,Kisumu West
+subcounty_list,kisumu_muhoroni,Kisumu Muhoroni
+subcounty_list,kisumu_nyakach,Kisumu Nyakach
+subcounty_list,kisumu_nyando,Kisumu Nyando
+subcounty_list,kisumu_seme,Kisumu Seme
+subcounty_list,kitui_west,Kitui West
+subcounty_list,kitui_central,Kitui Central
+subcounty_list,kitui_rural,Kitui Rural
+subcounty_list,kitui_south,Kitui South
+subcounty_list,kitui_east,Kitui East
+subcounty_list,kitui_north,Kitui North
+subcounty_list,kitui_west,Kitui West
+subcounty_list,kitui_central,Kitui Central
+subcounty_list,kwale_kinango,Kwale Kinango
+subcounty_list,kwale_lunga,Kwale Lunga
+subcounty_list,kwale_msambweni,Kwale Msambweni
+subcounty_list,kwale_matuga,Kwale Matuga
+subcounty_list,laikipia_central,Laikipia Central
+subcounty_list,laikipia_east,Laikipia East
+subcounty_list,laikipia_north,Laikipia North
+subcounty_list,laikipia_west,Laikipia West
+subcounty_list,laikipia_nyahururu,Laikipia Nyahururu
+subcounty_list,lamu_east,Lamu East
+subcounty_list,lamu_west,Lamu West
+subcounty_list,machakos_kathiani,Machakos Kathiani
+subcounty_list,machakos_town,Machakos Town
+subcounty_list,machakos_masinga,Machakos Masinga
+subcounty_list,machakos_matungulu,Machakos Matungulu
+subcounty_list,machakos_mavoko,Machakos Mavoko
+subcounty_list,machakos_mwala,Machakos Mwala
+subcounty_list,machakos_yatta,Machakos Yatta
+subcounty_list,makueni_kaiti,Makueni Kaiti
+subcounty_list,makueni_west,Makueni West
+subcounty_list,makueni_east,Makueni East
+subcounty_list,makueni_kilome,Makueni Kilome
+subcounty_list,makueni_makueni,Makueni Makueni
+subcounty_list,makueni_mbooni,Makueni Mbooni
+subcounty_list,mandera_banissa,Mandera Banissa
+subcounty_list,mandera_lafey,Mandera Lafey
+subcounty_list,mandera_east,Mandera East
+subcounty_list,mandera_north,Mandera North
+subcounty_list,mandera_south,Mandera South
+subcounty_list,mandera_west,Mandera West
+subcounty_list,marsabit_laisamis,Marsabit Laisamis
+subcounty_list,marsabit_moyale,Marsabit Moyale
+subcounty_list,marsabit_hor,Marsabit Hor
+subcounty_list,marsabit_saku,Marsabit Saku
+subcounty_list,meru_buuri,Meru Buuri
+subcounty_list,meru_central,Meru Central
+subcounty_list,meru_north,Meru North
+subcounty_list,meru_south,Meru South
+subcounty_list,meru_central,Meru Central
+subcounty_list,meru_north,Meru North
+subcounty_list,meru_south,Meru South
+subcounty_list,meru_east,Meru East
+subcounty_list,meru_west,Meru West
+subcounty_list,migori_awendo,Migori Awendo
+subcounty_list,migori_east,Migori East
+subcounty_list,migori_west,Migori West
+subcounty_list,migori_mabera,Migori Mabera
+subcounty_list,migori_ntimaru,Migori Ntimaru
+subcounty_list,migori_rongo,Migori Rongo
+subcounty_list,migori_east,Migori East
+subcounty_list,migori_west,Migori West
+subcounty_list,migori_uriri,Migori Uriri
+subcounty_list,mombasa_changamwe,Mombasa Changamwe
+subcounty_list,mombasa_jomvu,Mombasa Jomvu
+subcounty_list,mombasa_kisauni,Mombasa Kisauni
+subcounty_list,mombasa_likoni,Mombasa Likoni
+subcounty_list,mombasa_mvita,Mombasa Mvita
+subcounty_list,mombasa_nyali,Mombasa Nyali
+subcounty_list,muranga_gatanga,Muranga Gatanga
+subcounty_list,muranga_kahuro,Muranga Kahuro
+subcounty_list,muranga_kandara,Muranga Kandara
+subcounty_list,muranga_kangema,Muranga Kangema
+subcounty_list,muranga_kigumo,Muranga Kigumo
+subcounty_list,muranga_kiharu,Muranga Kiharu
+subcounty_list,muranga_mathioya,Muranga Mathioya
+subcounty_list,muranga_south,Muranga South
+subcounty_list,nairobi_north,Nairobi (City) North
+subcounty_list,nairobi_south,Nairobi (City) South
+subcounty_list,nairobi_central,Nairobi (City) Central
+subcounty_list,nairobi_east,Nairobi (City) East
+subcounty_list,nairobi_north,Nairobi (City) North
+subcounty_list,nairobi_south,Nairobi (City) South
+subcounty_list,nairobi_west,Nairobi (City) West
+subcounty_list,nairobi_kamukunji,Nairobi (City) Kamukunji
+subcounty_list,nairobi_kasarani,Nairobi (City) Kasarani
+subcounty_list,nairobi_kibra,Nairobi (City) Kibra
+subcounty_list,nairobi_ata,Nairobi (City) Ata
+subcounty_list,nairobi_makadara,Nairobi (City) Makadara
+subcounty_list,nairobi_mathare,Nairobi (City) Mathare
+subcounty_list,nairobi_roysambu,Nairobi (City) Roysambu
+subcounty_list,nairobi_ruaraka,Nairobi (City) Ruaraka
+subcounty_list,nairobi_starehe,Nairobi (City) Starehe
+subcounty_list,nairobi_westlands,Nairobi (City) Westlands
+subcounty_list,nakuru_bahati,Nakuru Bahati
+subcounty_list,nakuru_gilgil,Nakuru Gilgil
+subcounty_list,nakuru_north,Nakuru North
+subcounty_list,nakuru_south,Nakuru South
+subcounty_list,nakuru_molo,Nakuru Molo
+subcounty_list,nakuru_naivasha,Nakuru Naivasha
+subcounty_list,nakuru_east,Nakuru East
+subcounty_list,nakuru_west,Nakuru West
+subcounty_list,nakuru_njoro,Nakuru Njoro
+subcounty_list,nakuru_rongai,Nakuru Rongai
+subcounty_list,nakuru_subukia,Nakuru Subukia
+subcounty_list,nandi_aldai,Nandi Aldai
+subcounty_list,nandi_chesumei,Nandi Chesumei
+subcounty_list,nandi_emgwen,Nandi Emgwen
+subcounty_list,nandi_mosop,Nandi Mosop
+subcounty_list,nandi_hills,Nandi Hills
+subcounty_list,nandi_tindiret,Nandi Tindiret
+subcounty_list,narok_east,Narok East
+subcounty_list,narok_north,Narok North
+subcounty_list,narok_south,Narok South
+subcounty_list,narok_west,Narok West
+subcounty_list,narok_east,Narok East
+subcounty_list,narok_west,Narok West
+subcounty_list,nyamira_borabu,Nyamira Borabu
+subcounty_list,nyamira_manga,Nyamira Manga
+subcounty_list,nyamira_north,Nyamira North
+subcounty_list,nyamira_north,Nyamira North
+subcounty_list,nyamira_south,Nyamira South
+subcounty_list,nyandarua_kinangop,Nyandarua Kinangop
+subcounty_list,nyandarua_kipipiri,Nyandarua Kipipiri
+subcounty_list,nyandarua_ndaragwa,Nyandarua Ndaragwa
+subcounty_list,nyandarua_kalou,Nyandarua Kalou
+subcounty_list,nyandarua_orok,Nyandarua Orok
+subcounty_list,nyeri_east,Nyeri East
+subcounty_list,nyeri_west,Nyeri West
+subcounty_list,nyeri_east,Nyeri East
+subcounty_list,nyeri_west,Nyeri West
+subcounty_list,nyeri_mukurweini,Nyeri Mukurweini
+subcounty_list,nyeri_town,Nyeri Town
+subcounty_list,nyeri_othaya,Nyeri Othaya
+subcounty_list,nyeri_tetu,Nyeri Tetu
+subcounty_list,samburu_east,Samburu East
+subcounty_list,samburu_north,Samburu North
+subcounty_list,samburu_west,Samburu West
+subcounty_list,siaya_usonga,Siaya Usonga
+subcounty_list,siaya_bondo,Siaya Bondo
+subcounty_list,siaya_gem,Siaya Gem
+subcounty_list,siaya_rarieda,Siaya Rarieda
+subcounty_list,siaya_ugenya,Siaya Ugenya
+subcounty_list,siaya_unguja,Siaya Unguja
+subcounty_list,taita taveta_mwatate,Taita Taveta Mwatate
+subcounty_list,taita taveta_taveta,Taita Taveta Taveta
+subcounty_list,taita taveta_voi,Taita Taveta Voi
+subcounty_list,taita taveta_wundanyi,Taita Taveta Wundanyi
+subcounty_list,tana_river_bura,Tana River Bura
+subcounty_list,tana_river_galole,Tana River Galole
+subcounty_list,tana_river_garsen,Tana River Garsen
+subcounty_list,tharaka_nithi_north,Tharaka-Nithi North
+subcounty_list,tharaka_nithi_south,Tharaka-Nithi South
+subcounty_list,tharaka_nithi_chuka,Tharaka-Nithi Chuka
+subcounty_list,tharaka_nithi_mbe,Tharaka-Nithi Mbe
+subcounty_list,tharaka_nithi_maara,Tharaka-Nithi Maara
+subcounty_list,tharaka_nithi_muthambi,Tharaka-Nithi Muthambi
+subcounty_list,trans_nzoia_cherangany,Trans-Nzoia Cherangany
+subcounty_list,trans_nzoia_endebess,Trans-Nzoia Endebess
+subcounty_list,trans_nzoia_kiminini,Trans-Nzoia Kiminini
+subcounty_list,trans_nzoia_kwanza,Trans-Nzoia Kwanza
+subcounty_list,trans_nzoia_saboti,Trans-Nzoia Saboti
+subcounty_list,turkana_loima,Turkana Loima
+subcounty_list,turkana_central,Turkana Central
+subcounty_list,turkana_east,Turkana East
+subcounty_list,turkana_north,Turkana North
+subcounty_list,turkana_south,Turkana South
+subcounty_list,uasin_gishu_ainabkoi,Uasin Gishu Ainabkoi
+subcounty_list,uasin_gishu_kapseret,Uasin Gishu Kapseret
+subcounty_list,uasin_gishu_kesses,Uasin Gishu Kesses
+subcounty_list,uasin_gishu_moiben,Uasin Gishu Moiben
+subcounty_list,uasin_gishu_soy,Uasin Gishu Soy
+subcounty_list,uasin_gishu_turbo,Uasin Gishu Turbo
+subcounty_list,vihiga_emuhaya,Vihiga Emuhaya
+subcounty_list,vihiga_hamisi,Vihiga Hamisi
+subcounty_list,vihiga_luanda,Vihiga Luanda
+subcounty_list,vihiga_sabatia,Vihiga Sabatia
+subcounty_list,vihiga_vihiga,Vihiga Vihiga
+subcounty_list,wajir_eldas,Wajir Eldas
+subcounty_list,wajir_tarbaj,Wajir Tarbaj
+subcounty_list,wajir_east,Wajir East
+subcounty_list,wajir_north,Wajir North
+subcounty_list,wajir_south,Wajir South
+subcounty_list,wajir_west,Wajir West
+subcounty_list,central_pokot,Central Pokot
+subcounty_list,pokot_north,West Pokot
+subcounty_list,pokot_south,Pokot South
+subcounty_list,north_pokot,Pokot North
