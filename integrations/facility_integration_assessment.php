@@ -1,13 +1,59 @@
 <?php
 // integrations/facility_integration_assessment.php
 session_start();
-include('../includes/config.php');
-include('../includes/session_check.php');
 
-if (!isset($_SESSION['user_id'])) { header('Location: ../login.php'); exit(); }
+// Fix the include path - use absolute path relative to the file
+$base_path = dirname(__DIR__); // Go up one level from 'integrations' folder
+$config_path = $base_path . '/includes/config.php';
+$session_check_path = $base_path . '/includes/session_check.php';
+
+// Check if config file exists
+if (!file_exists($config_path)) {
+    die('Configuration file not found. Please check the path: ' . $config_path);
+}
+
+include($config_path);
+include($session_check_path);
+
+// Verify database connection
+if (!isset($conn) || !$conn) {
+    die('Database connection failed. Please check your config.php file.');
+}
+
+// Test the connection
+if (!mysqli_ping($conn)) {
+    die('Database connection lost. Please check your database server.');
+}
+
+if (!isset($_SESSION['user_id'])) {
+    header('Location: ../login.php');
+    exit();
+}
 
 $collected_by = $_SESSION['full_name'] ?? '';
 $uid = (int)$_SESSION['user_id'];
+
+// Determine if this is view mode or edit mode
+$edit_mode = isset($_GET['edit']) || !isset($_GET['id']);
+$view_only = isset($_GET['id']) && !isset($_GET['edit']);
+
+// For view mode, check if assessment exists and set read-only
+if ($view_only && isset($_GET['id'])) {
+    $check_id = (int)$_GET['id'];
+    $check_query = mysqli_query($conn, "SELECT assessment_status FROM integration_assessments WHERE assessment_id = $check_id");
+    if ($check_row = mysqli_fetch_assoc($check_query)) {
+        $assessment_status = $check_row['assessment_status'];
+        $user_role = $_SESSION['role'] ?? '';
+        $is_admin = in_array($user_role, ['Admin', 'Super Admin']);
+
+        // If submitted and not admin, force view-only mode
+        if ($assessment_status === 'Submitted' && !$is_admin) {
+            $view_only = true;
+            $edit_mode = false;
+            $_SESSION['warning_msg'] = 'This assessment has been submitted and can only be viewed. Contact an administrator to edit.';
+        }
+    }
+}
 
 // ── AJAX: facility search ─────────────────────────────────────────────────────
 if (isset($_GET['ajax']) && $_GET['ajax'] === 'search_facility') {
@@ -54,8 +100,15 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'check_assessment') {
     exit();
 }
 
-// ── AJAX: save a single section ───────────────────────────────────────────────
+// ── AJAX: save a single section (only if not view-only) ───────────────────────
 if (isset($_POST['ajax_save_section'])) {
+    // Check if this is view-only mode
+    if ($view_only) {
+        header('Content-Type: application/json');
+        echo json_encode(['success'=>false,'error'=>'Cannot save in view-only mode']);
+        exit();
+    }
+
     header('Content-Type: application/json');
     $section    = mysqli_real_escape_string($conn, $_POST['section_key'] ?? '');
     $fid        = (int)($_POST['facility_id'] ?? 0);
@@ -107,7 +160,7 @@ if (isset($_POST['ajax_save_section'])) {
         }
     }
 
-    // ── Build SET clause from section ──────────────────────────────────────────
+    // ── Build SET clause from section (same as before) ──────────────────────────
     $sets = [];
 
     if ($section === 's1') {
@@ -215,7 +268,7 @@ if (isset($_POST['ajax_save_section'])) {
     if (!in_array($section, $ss)) $ss[] = $section;
     $ss_json = $e(json_encode($ss));
 
-    // Determine all_sections count (11 logical sections)
+    // Determine all_sections count (14 logical sections)
     $all_sections = ['s1','s2a','s2b','s2c','s3','s4','s5','s6','s7','s8_readiness','s8_lab','s9','s10','s11'];
     $status = (count($ss) >= count($all_sections)) ? 'Complete' : 'Draft';
 
@@ -240,8 +293,14 @@ if (isset($_POST['ajax_save_section'])) {
     exit();
 }
 
-// ── AJAX: final submit ────────────────────────────────────────────────────────
+// ── AJAX: final submit (only if not view-only) ────────────────────────────────────────
 if (isset($_POST['ajax_submit'])) {
+    if ($view_only) {
+        header('Content-Type: application/json');
+        echo json_encode(['success'=>false,'error'=>'Cannot submit in view-only mode']);
+        exit();
+    }
+
     header('Content-Type: application/json');
     $aid = (int)($_POST['assessment_id'] ?? 0);
     if ($aid) {
@@ -256,14 +315,22 @@ if (isset($_POST['ajax_submit'])) {
     exit();
 }
 
-// ── Load existing assessment if editing ───────────────────────────────────────
+// ── Load existing assessment if editing or viewing ───────────────────────────────────────
 $edit_id = (int)($_GET['id'] ?? 0);
-$existing = null; $sections_saved = [];
+$existing = null;
+$sections_saved = [];
+$is_readonly = $view_only;
+
 if ($edit_id) {
     $existing = mysqli_fetch_assoc(mysqli_query($conn,
         "SELECT * FROM integration_assessments WHERE assessment_id=$edit_id LIMIT 1"));
     if ($existing) {
         $sections_saved = json_decode($existing['sections_saved'] ?? '[]', true) ?: [];
+
+        // If assessment is submitted and user is not admin, force read-only
+        if ($existing['assessment_status'] === 'Submitted' && !in_array($_SESSION['role'] ?? '', ['Admin', 'Super Admin'])) {
+            $is_readonly = true;
+        }
     }
 }
 
@@ -295,9 +362,14 @@ function sel($key, $val, $existing) {
 function chk($key, $val, $existing) {
     return ($existing[$key] ?? '') === $val ? 'checked' : '';
 }
+function is_readonly_attr($is_readonly) {
+    return $is_readonly ? 'readonly disabled' : '';
+}
 
 $e_data = $existing ?? [];
+$page_title = $view_only ? 'View Assessment' : ($edit_id ? 'Edit Assessment' : 'New Assessment');
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>

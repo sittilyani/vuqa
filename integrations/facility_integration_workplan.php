@@ -1,15 +1,30 @@
 <?php
 // facility_integration_workplan.php
 session_start();
-include('../includes/config.php');
-include('../includes/session_check.php');
+
+// Fix include paths
+$base_path = dirname(__DIR__);
+$config_path = $base_path . '/includes/config.php';
+$session_check_path = $base_path . '/includes/session_check.php';
+
+if (!file_exists($config_path)) {
+    die('Configuration file not found. Please check the path: ' . $config_path);
+}
+
+include($config_path);
+include($session_check_path);
+
+// Verify database connection
+if (!isset($conn) || !$conn) {
+    die('Database connection failed. Please check your config.php file.');
+}
 
 // Check if dompdf is available for PDF export
 $dompdf_available = false;
 $dompdf_autoload_paths = [
-    '../vendor/autoload.php',
-    '../vendor/dompdf/dompdf/autoload.inc.php',
-    '../dompdf/autoload.inc.php'
+    $base_path . '/vendor/autoload.php',
+    $base_path . '/vendor/dompdf/dompdf/autoload.inc.php',
+    $base_path . '/dompdf/autoload.inc.php'
 ];
 
 foreach ($dompdf_autoload_paths as $path) {
@@ -28,7 +43,7 @@ if (!isset($_SESSION['user_id'])) {
 $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 $export_format = isset($_GET['export']) ? $_GET['export'] : '';
 
-if (!$id && !$export_format) {
+if (!$id) {
     header('Location: facility_integration_assessment_list.php');
     exit();
 }
@@ -37,7 +52,7 @@ if (!$id && !$export_format) {
 $query = "SELECT * FROM integration_assessments WHERE assessment_id = $id";
 $result = mysqli_query($conn, $query);
 if (mysqli_num_rows($result) == 0) {
-    header('Location: facility_integration_assessment_workplan.php');
+    header('Location: facility_integration_assessment_list.php');
     exit();
 }
 $assessment = mysqli_fetch_assoc($result);
@@ -47,6 +62,7 @@ $emr_systems = mysqli_query($conn, "SELECT * FROM integration_assessment_emr_sys
 
 // Generate the workplan data
 $workplan = generateIntegrationWorkplan($assessment, $emr_systems, $conn);
+$workplan['detailed_recommendations'] = generateDetailedRecommendations($assessment);
 
 // Handle exports
 if ($export_format === 'pdf') {
@@ -667,6 +683,512 @@ function analyzeEMRStatus($assessment, $emr_systems) {
     ];
 }
 
+/**
+ * Generate detailed recommendations for each specific question
+ * This provides granular, actionable guidance based on assessment responses
+ */
+function generateDetailedRecommendations($assessment) {
+    $recommendations = [];
+
+    // ==================== SECTION 8b: LAB SUPPORT (Q72-Q92) ====================
+
+    // Q72: Specimen Referral System
+    if (($assessment['lab_specimen_referral'] ?? '') == 'Yes') {
+        $recommendations[] = [
+            'question' => 'Q72',
+            'category' => 'Lab Support',
+            'response' => 'Yes',
+            'recommendation' => '? Specimen referral system in place - this will not interrupt integration. Continue technical follow-up for 3 months to ensure smooth transition.',
+            'action_items' => [
+                'Conduct quarterly system review meetings',
+                'Monitor turnaround times for specimen results',
+                'Document any bottlenecks in the referral chain'
+            ],
+            'timeline' => '3 months follow-up',
+            'priority' => 'Medium'
+        ];
+    } else {
+        $recommendations[] = [
+            'question' => 'Q72',
+            'category' => 'Lab Support',
+            'response' => 'No/Missing',
+            'recommendation' => '? CRITICAL: No integrated specimen referral system. Implement immediately to ensure lab services continuity during transition.',
+            'action_items' => [
+                'Establish specimen referral protocols with nearby facilities',
+                'Train staff on proper specimen handling and transport',
+                'Set up tracking system for referred specimens',
+                'Engage county health team for support'
+            ],
+            'timeline' => '1-2 months',
+            'priority' => 'Critical'
+        ];
+    }
+
+    // Q74: ISO 15189 Accreditation
+    $accreditation = $assessment['lab_iso15189_accredited'] ?? '';
+    if ($accreditation == 'Yes') {
+        $recommendations[] = [
+            'question' => 'Q74',
+            'category' => 'Lab Support',
+            'response' => 'Yes',
+            'recommendation' => '? Laboratory is ISO 15189 accredited. Maintain accreditation through annual renewals and continuous improvement.',
+            'action_items' => [
+                'Plan for annual license renewals (budget allocation)',
+                'Maintain documentation including bin cards and logs',
+                'Prepare for surveillance audits',
+                'Document staff training records'
+            ],
+            'timeline' => 'Ongoing',
+            'priority' => 'Medium'
+        ];
+    } else {
+        $recommendations[] = [
+            'question' => 'Q74',
+            'category' => 'Lab Support',
+            'response' => 'No',
+            'recommendation' => '? Facility lacks ISO 15189 accreditation. Significant investment needed from county/facility for yearly licenses and renewal practices.',
+            'action_items' => [
+                'IP to support documentation and material availability (bin cards, SOPs)',
+                'Conduct gap analysis for accreditation requirements',
+                'If county-funded: support logistics for renewal through accreditation bodies',
+                'Develop timeline for accreditation preparation (6-12 months)'
+            ],
+            'timeline' => '6-12 months',
+            'priority' => 'High'
+        ];
+    }
+
+    // Q76: LCQI Implementing
+    $lcqi = $assessment['lab_lcqi_implementing'] ?? '';
+    if ($lcqi == 'Yes') {
+        $recommendations[] = [
+            'question' => 'Q76',
+            'category' => 'Lab Support',
+            'response' => 'Yes',
+            'recommendation' => '? Laboratory Quality Continuous Improvement (LCQI) in place. Continue technical support with trainings and mentorship for 3 months then exit as IP.',
+            'action_items' => [
+                'Conduct refresher training on LCQI principles',
+                'Support monthly quality indicator reviews',
+                'Document quality improvement projects',
+                'Plan transition of LCQI oversight to facility team by month 3'
+            ],
+            'timeline' => '3 months (IP support then transition)',
+            'priority' => 'Medium'
+        ];
+    } else {
+        $recommendations[] = [
+            'question' => 'Q76',
+            'category' => 'Lab Support',
+            'response' => 'No',
+            'recommendation' => '? LCQI not implemented. Quality systems need strengthening before transition.',
+            'action_items' => [
+                'Establish LCQI committee',
+                'Train staff on quality improvement methodologies',
+                'Implement monthly quality indicator tracking',
+                'Develop quality improvement projects for identified gaps'
+            ],
+            'timeline' => '3-6 months',
+            'priority' => 'High'
+        ];
+    }
+
+    // Q77: LCQI Internal Audits
+    $internal_audits = $assessment['lab_lcqi_internal_audits'] ?? '';
+    if ($internal_audits == 'Yes') {
+        $recommendations[] = [
+            'question' => 'Q77',
+            'category' => 'Lab Support',
+            'response' => 'Yes',
+            'recommendation' => '? Regular internal audits conducted using LCQI checklist. Risks are minimal. Continue support for 3-6 months to build lab manager capacity on CAPA.',
+            'action_items' => [
+                'Strengthen Corrective and Preventive Action (CAPA) documentation',
+                'Conduct joint audits with IP mentors',
+                'Review audit findings and closure rates',
+                'Train lab managers on root cause analysis'
+            ],
+            'timeline' => '3-6 months capacity building',
+            'priority' => 'Low'
+        ];
+    } else {
+        $recommendations[] = [
+            'question' => 'Q77',
+            'category' => 'Lab Support',
+            'response' => 'No',
+            'recommendation' => '? Internal audits not conducted regularly. Quality assurance systems need strengthening.',
+            'action_items' => [
+                'Establish internal audit schedule (quarterly minimum)',
+                'Train internal auditors',
+                'Develop audit checklists based on LCQI framework',
+                'Implement CAPA tracking system'
+            ],
+            'timeline' => '2-4 months',
+            'priority' => 'High'
+        ];
+    }
+
+    // Q79: SLA Support
+    $sla_support = $assessment['lab_sla_support'] ?? '';
+    if ($sla_support != 'County') {
+        $recommendations[] = [
+            'question' => 'Q79',
+            'category' => 'Lab Support',
+            'response' => $sla_support ?: 'Not in place',
+            'recommendation' => '? Facility should contact County for SLA support. IP exit without proper SLAs will disrupt lab services.',
+            'action_items' => [
+                'Engage County health department for SLA establishment',
+                'Document equipment maintenance requirements',
+                'Identify alternative service providers',
+                'Ensure SLAs cover critical equipment (GeneXpert, CD4, etc.)'
+            ],
+            'timeline' => '1-3 months',
+            'priority' => 'Critical'
+        ];
+    }
+
+    // Q81: LIMS in Place
+    $lims = $assessment['lab_lims_in_place'] ?? '';
+    if ($lims == 'Yes') {
+        $recommendations[] = [
+            'question' => 'Q81',
+            'category' => 'Lab Support',
+            'response' => 'Yes',
+            'recommendation' => '? LIMS in place. Strengthen utilization and review SOPs and policies.',
+            'action_items' => [
+                'Conduct LIMS utilization assessment',
+                'Review and update LIMS-related SOPs',
+                'Train all lab staff on LIMS features',
+                'Monitor data completeness and accuracy'
+            ],
+            'timeline' => '1-3 months',
+            'priority' => 'Medium'
+        ];
+    } else {
+        $recommendations[] = [
+            'question' => 'Q81',
+            'category' => 'Lab Support',
+            'response' => 'No',
+            'recommendation' => '? No LIMS in place. Digital systems needed for data integration.',
+            'action_items' => [
+                'Conduct LIMS needs assessment',
+                'Identify appropriate LIMS solution',
+                'Plan implementation with IT support',
+                'Budget for hardware and software'
+            ],
+            'timeline' => '6-12 months',
+            'priority' => 'High'
+        ];
+    }
+
+    // Q82-Q84: LIMS Integration & Interoperability
+    $lims_emr = $assessment['lab_lims_emr_integrated'] ?? '';
+    if ($lims_emr != 'Yes') {
+        $recommendations[] = [
+            'question' => 'Q82-Q84',
+            'category' => 'Lab Support',
+            'response' => 'Not integrated',
+            'recommendation' => '? LIMS not integrated with EMR. Support interoperability from vendors or integrate with facility-wide EMR.',
+            'action_items' => [
+                'Engage EMR and LIMS vendors for integration',
+                'Develop integration specifications (HL7/FHIR)',
+                'Test interoperability before full rollout',
+                'Train staff on integrated workflows'
+            ],
+            'timeline' => '4-8 months',
+            'priority' => 'High'
+        ];
+    }
+
+    // Q85: Dedicated HIS Staff
+    $his_staff = $assessment['lab_dedicated_his_staff'] ?? '';
+    if ($his_staff != 'Yes') {
+        $recommendations[] = [
+            'question' => 'Q85',
+            'category' => 'Lab Support',
+            'response' => 'No dedicated staff',
+            'recommendation' => '? No dedicated HIS technical staff. IP to support trainings and mentorship for 3 months, or County train more staff to prevent gaps during reshuffles.',
+            'action_items' => [
+                'Identify and train HIS focal persons (minimum 2)',
+                'Develop training plan for County health IT staff',
+                'Create knowledge transfer documentation',
+                'Establish helpdesk support system'
+            ],
+            'timeline' => '3 months IP support',
+            'priority' => 'High'
+        ];
+    }
+
+    // Q88: Biosafety Training
+    $biosafety = $assessment['lab_biosafety_trained'] ?? '';
+    if ($biosafety == 'Yes') {
+        $recommendations[] = [
+            'question' => 'Q88',
+            'category' => 'Lab Support',
+            'response' => 'Yes',
+            'recommendation' => '? Staff trained in biosafety. Conduct mapping and refresher training by IP, and train more TOTs.',
+            'action_items' => [
+                'Map all trained staff and identify gaps',
+                'Conduct refresher training for existing staff',
+                'Train additional TOTs for sustainability',
+                'Develop biosafety audit checklist'
+            ],
+            'timeline' => '1-2 months',
+            'priority' => 'Medium'
+        ];
+    } else {
+        $recommendations[] = [
+            'question' => 'Q88',
+            'category' => 'Lab Support',
+            'response' => 'No',
+            'recommendation' => '? Staff not trained in biosafety - serious safety risk.',
+            'action_items' => [
+                'Conduct comprehensive biosafety training for all lab staff',
+                'Develop biosafety protocols and SOPs',
+                'Ensure PPE availability',
+                'Establish biosafety committee'
+            ],
+            'timeline' => '1-2 months',
+            'priority' => 'Critical'
+        ];
+    }
+
+    // Q89: Hepatitis B Vaccination
+    $hep_b = $assessment['lab_hepb_vaccinated'] ?? '';
+    if ($hep_b != 'Yes') {
+        $recommendations[] = [
+            'question' => 'Q89',
+            'category' => 'Lab Support',
+            'response' => 'No/Partial',
+            'recommendation' => '? Staff not vaccinated against Hepatitis B. Make it mandatory for each staff as a safety precaution for their own health.',
+            'action_items' => [
+                'Conduct hepatitis B vaccination campaign',
+                'Document vaccination status for all lab staff',
+                'Make vaccination a condition of employment',
+                'Provide booster shots as needed'
+            ],
+            'timeline' => '1 month (urgent)',
+            'priority' => 'Critical'
+        ];
+    }
+
+    // Q90-Q91: IPC Committee & Workplan
+    $ipc_committee = $assessment['lab_ipc_committee'] ?? '';
+    if ($ipc_committee != 'Yes') {
+        $recommendations[] = [
+            'question' => 'Q90-Q91',
+            'category' => 'Infection Control',
+            'response' => 'No committee',
+            'recommendation' => '? No active IPC committee. Form immediately on voluntary basis involving management for ownership. IP to provide technical support for 6 months.',
+            'action_items' => [
+                'Establish IPC committee with clear TOR',
+                'Include management representation for ownership',
+                'IP to provide technical support until fully functional (6 months)',
+                'Develop and implement IPC workplan'
+            ],
+            'timeline' => '1 month to form, 6 months IP support',
+            'priority' => 'High'
+        ];
+    } else {
+        $ipc_workplan = $assessment['lab_ipc_workplan'] ?? '';
+        if ($ipc_workplan != 'Yes') {
+            $recommendations[] = [
+                'question' => 'Q90-Q91',
+                'category' => 'Infection Control',
+                'response' => 'Committee exists but no workplan',
+                'recommendation' => '? IPC committee exists. Review pending action points and support for 3 months before full transition.',
+                'action_items' => [
+                    'Review existing committee action points',
+                    'Develop/update IPC workplan',
+                    'Support implementation for 3 months',
+                    'Transition full ownership to facility'
+                ],
+                'timeline' => '3 months transition support',
+                'priority' => 'Medium'
+            ];
+        }
+    }
+
+    // Q92: MOH Virtual Academy Access
+    $virtual_academy = $assessment['lab_moh_virtual_academy'] ?? '';
+    if ($virtual_academy != 'Yes') {
+        $recommendations[] = [
+            'question' => 'Q92',
+            'category' => 'Training',
+            'response' => 'No access',
+            'recommendation' => '? No access to MOH Virtual Academy. Register all staff at https://elearning.health.go.ke/ and make courses mandatory for appraisal.',
+            'action_items' => [
+                'Register all lab staff on the MOH Virtual Academy platform',
+                'Identify mandatory courses for lab personnel',
+                'Integrate course completion into HR appraisal system',
+                'Track training progress monthly'
+            ],
+            'timeline' => '1 month registration, ongoing',
+            'priority' => 'High'
+        ];
+    }
+
+    // ==================== SECTION 9: COMMUNITY ENGAGEMENT (Q93-Q97) ====================
+
+    $community_questions = [
+        'comm_hiv_feedback_mechanism' => 'Q93: HIV Feedback Mechanism',
+        'comm_roc_feedback_used' => 'Q94: ROC Feedback Used',
+        'comm_community_representation' => 'Q96: Community Representation',
+        'comm_plhiv_in_discussions' => 'Q97: PLHIV in Discussions'
+    ];
+
+    $has_community_gap = false;
+    foreach ($community_questions as $field => $label) {
+        $response = $assessment[$field] ?? '';
+        if ($response != 'Yes') {
+            $has_community_gap = true;
+            break;
+        }
+    }
+
+    if ($has_community_gap) {
+        $recommendations[] = [
+            'question' => 'Q93-Q97',
+            'category' => 'Community Engagement',
+            'response' => 'Multiple "No" responses',
+            'recommendation' => '? Facility lacks community engagement mechanisms. Move with speed through CQI committees to create awareness and involve stakeholders in decision-making about integration.',
+            'action_items' => [
+                'Activate CQI committees to address community engagement',
+                'Conduct community awareness sessions on integration',
+                'Establish client feedback channels (suggestion boxes, exit interviews)',
+                'Include PLHIV representatives in facility committees'
+            ],
+            'timeline' => '1-3 months',
+            'priority' => 'High'
+        ];
+    }
+
+    // Q95: Health Talks with PLHIV
+    $health_talks = (int)($assessment['comm_health_talks_plhiv'] ?? 0);
+    if ($health_talks < 4) {
+        $recommendations[] = [
+            'question' => 'Q95',
+            'category' => 'Community Engagement',
+            'response' => $health_talks . ' health talks',
+            'recommendation' => '? Insufficient health talks with PLHIV. Increase frequency to at least monthly.',
+            'action_items' => [
+                'Schedule monthly health talks with PLHIV support groups',
+                'Cover topics on integration benefits and service availability',
+                'Document attendance and feedback',
+                'Use PLHIV peer educators for talks'
+            ],
+            'timeline' => 'Immediate - ongoing',
+            'priority' => 'Medium'
+        ];
+    }
+
+    // ==================== SECTION 10: SUPPLY CHAIN (Q98-Q102) ====================
+
+    // Q98: KHIS Reports Monthly
+    $khis_reports = $assessment['sc_khis_reports_monthly'] ?? '';
+    if ($khis_reports != 'Yes') {
+        $recommendations[] = [
+            'question' => 'Q98',
+            'category' => 'Supply Chain',
+            'response' => 'No',
+            'recommendation' => '? Commodity consumption reports not submitted consistently.',
+            'action_items' => [
+                'Establish monthly reporting schedule',
+                'Train staff on FMARPS (MOH729B) and FCDRR (MOH730B)',
+                'Conduct monthly data quality checks',
+                'Participate in quarterly commodity security TWG meetings'
+            ],
+            'timeline' => '1-2 months',
+            'priority' => 'High'
+        ];
+    } else {
+        $recommendations[] = [
+            'question' => 'Q98',
+            'category' => 'Supply Chain',
+            'response' => 'Yes',
+            'recommendation' => '? Consistent reporting in place. Maintain regular practices through County HPTU, data review and commodity security TWG meetings.',
+            'action_items' => [
+                'Continue monthly reporting',
+                'Participate actively in TWG meetings',
+                'Review data for decision-making',
+                'Share best practices with other facilities'
+            ],
+            'timeline' => 'Ongoing',
+            'priority' => 'Low'
+        ];
+    }
+
+    // Stock-out questions
+    $stockout_questions = [
+        'sc_stockout_arvs' => 'ARVs',
+        'sc_stockout_tb_drugs' => 'TB Drugs',
+        'sc_stockout_hiv_reagents' => 'HIV Reagents (VL, CD4)',
+        'sc_stockout_tb_reagents' => 'TB Testing Reagents (LFA, LAMP, GeneXpert)'
+    ];
+
+    foreach ($stockout_questions as $field => $commodity) {
+        $response = $assessment[$field] ?? '';
+        if ($response == 'Yes') {
+            $recommendations[] = [
+                'question' => 'Q99-Q102',
+                'category' => 'Supply Chain',
+                'response' => 'Stock-out occurred for ' . $commodity,
+                'recommendation' => "? Stock-out of $commodity detected. Implement corrective measures immediately.",
+                'action_items' => [
+                    'Conduct monthly/quarterly allocation meetings with County',
+                    'Improve forecasting using consumption data',
+                    'Maintain good record keeping and inventory control',
+                    'Consider redistribution through Sub-County/County mechanisms',
+                    'Establish buffer stock system',
+                    'Ensure no client misses services during stock-outs'
+                ],
+                'timeline' => 'Immediate - ongoing',
+                'priority' => 'Critical'
+            ];
+        }
+    }
+
+    // ==================== SECTION 11: PRIMARY HEALTH CARE (Q103-Q104) ====================
+
+    $phc_questions = [
+        'phc_chp_referrals' => 'CHP Referrals for PLHIV',
+        'phc_chwp_tracing' => 'CHWP Tracing for LTFU'
+    ];
+
+    $has_phc_gap = false;
+    foreach ($phc_questions as $field => $label) {
+        $response = $assessment[$field] ?? '';
+        if ($response != 'Yes') {
+            $has_phc_gap = true;
+            break;
+        }
+    }
+
+    if ($has_phc_gap) {
+        $recommendations[] = [
+            'question' => 'Q103-Q104',
+            'category' => 'Primary Health Care',
+            'response' => 'Missing functionality',
+            'recommendation' => '? PHC community mechanisms need strengthening. Strengthen community mechanisms through PHC and community health providers.',
+            'action_items' => [
+                'Map all Community Health Promoters (CHPs) in catchment area',
+                'Train CHPs on HIV/TB referral pathways',
+                'Establish referral documentation system',
+                'Hold quarterly review meetings with CHPs',
+                'Integrate tracing into routine PHC activities'
+            ],
+            'timeline' => '1-3 months',
+            'priority' => 'High'
+        ];
+    }
+
+    // Sort recommendations by priority
+    $priority_order = ['Critical' => 1, 'High' => 2, 'Medium' => 3, 'Low' => 4];
+    usort($recommendations, function($a, $b) use ($priority_order) {
+        return ($priority_order[$a['priority']] ?? 5) <=> ($priority_order[$b['priority']] ?? 5);
+    });
+
+    return $recommendations;
+}
+
 function getWorkplanHTML($workplan) {
     ob_start();
     ?>
@@ -829,6 +1351,17 @@ function getWorkplanHTML($workplan) {
                 margin-top: 4px;
             }
 
+            .sub-label {
+                font-size: 13px;
+                font-weight: 700;
+                color: #0D1A63;
+                text-transform: uppercase;
+                letter-spacing: 0.8px;
+                margin: 20px 0 12px;
+                padding-bottom: 6px;
+                border-bottom: 1px solid #e8edf8;
+            }
+
             .footer-note {
                 margin-top: 30px;
                 padding: 15px;
@@ -902,8 +1435,7 @@ function getWorkplanHTML($workplan) {
             <div class="card-body">
                 <table class="gap-table">
                     <thead>
-                        <tr><th>Category</th><th>Indicator</th><th>Current Status</th><th>Target Status</th><th>Severity</th></tr>
-                    </thead>
+                        <tr><th>Category</th><th>Indicator</th><th>Current Status</th><th>Target Status</th><th>Severity</th></thead>
                     <tbody>
                         <?php foreach ($workplan['gaps'] as $gap): ?>
                         <tr>
@@ -920,7 +1452,7 @@ function getWorkplanHTML($workplan) {
         </div>
 
         <!-- AI-Powered Recommendations -->
-        <div class="section-title">AI-Powered Recommendations</div>
+        <div class="section-title">Strategic Recommendations</div>
         <div class="card">
             <div class="card-body">
                 <?php foreach ($workplan['recommendations'] as $rec):
@@ -953,16 +1485,6 @@ function getWorkplanHTML($workplan) {
                 </div>
                 <?php endforeach; ?>
             </div>
-            <!--<h2><?= round($total) ?>%</h2>
-                <span class="badge badge-<?= $clr ?>"><?= $cat ?></span>
-
-                <div class="progress" style="margin-top:10px;">
-                    <div class="progress-bar bg-<?= $clr ?>" style="width:<?= $total ?>%"></div>
-                </div>
-            <p style="margin-top:15px; font-weight:bold;">
-                Overall Recommendation:
-                <?= $cat ?> facility with a readiness score of <?= round($total) ?>%.
-            </p>-->
         </div>
 
         <!-- Phased Transition Timeline -->
@@ -1051,8 +1573,63 @@ function getWorkplanHTML($workplan) {
             </div>
         </div>
 
+        <!-- Detailed Question-by-Question Recommendations -->
+        <div class="section-title">Detailed Actionable Recommendations by Question</div>
+        <div class="card">
+            <div class="card-body">
+                <p style="margin-bottom: 15px; color: #666;">The following recommendations are based on specific responses to each assessment question:</p>
+
+                <?php if (!empty($workplan['detailed_recommendations'])): ?>
+                    <?php
+                    $current_category = '';
+                    foreach ($workplan['detailed_recommendations'] as $rec):
+                        $priority_class = $rec['priority'] == 'Critical' ? 'priority-critical' :
+                                         ($rec['priority'] == 'High' ? 'priority-high' :
+                                         ($rec['priority'] == 'Medium' ? 'priority-medium' : 'priority-low'));
+                        $border_class = $rec['priority'] == 'Critical' ? 'rec-critical' :
+                                       ($rec['priority'] == 'High' ? 'rec-high' :
+                                       ($rec['priority'] == 'Medium' ? 'rec-medium' : 'rec-low'));
+                    ?>
+                        <?php if ($current_category != $rec['category']): ?>
+                            <?php if ($current_category != ''): ?></div><?php endif; ?>
+                            <div class="sub-label" style="margin-top: 15px;">
+                                <i class="fas fa-folder-open"></i> <?= htmlspecialchars($rec['category']) ?>
+                            </div>
+                            <div style="margin-top: 10px;">
+                            <?php $current_category = $rec['category']; ?>
+                        <?php endif; ?>
+
+                        <div class="recommendation-item <?= $border_class ?>" style="margin-bottom: 12px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 8px;">
+                                <strong style="font-size: 12px;"><?= htmlspecialchars($rec['question']) ?></strong>
+                                <div>
+                                    <span class="priority-badge <?= $priority_class ?>"><?= $rec['priority'] ?> Priority</span>
+                                    <span style="margin-left: 5px; font-size: 10px; color: #666;">Timeline: <?= $rec['timeline'] ?></span>
+                                </div>
+                            </div>
+                            <p style="margin-bottom: 8px; font-size: 12px; background: #f8f9fa; padding: 6px 10px; border-radius: 4px;">
+                                <strong>Response:</strong> <?= htmlspecialchars($rec['response']) ?>
+                            </p>
+                            <p style="margin-bottom: 8px; font-size: 12px;"><?= htmlspecialchars($rec['recommendation']) ?></p>
+                            <div>
+                                <strong>Action Items:</strong>
+                                <ul class="action-list">
+                                    <?php foreach ($rec['action_items'] as $action): ?>
+                                        <li><?= htmlspecialchars($action) ?></li>
+                                    <?php endforeach; ?>
+                                </ul>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                    </div>
+                <?php else: ?>
+                    <p>No detailed recommendations available.</p>
+                <?php endif; ?>
+            </div>
+        </div>
+
         <div class="footer-note">
-            This integration workplan was generated using AI based on facility assessment data from the Integration Assessment Tool.<br>
+            This integration workplan was generated based on facility assessment data from the Integration Assessment Tool.<br>
             Generated on: <?= date('d F Y H:i:s') ?>
         </div>
     </div>

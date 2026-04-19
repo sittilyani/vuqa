@@ -4,15 +4,214 @@ include('../includes/config.php');
 include('../includes/session_check.php');
 if (!isset($_SESSION['user_id'])) { header('Location: ../login.php'); exit(); }
 
-// Handle DELETE
+// Get user role for permission checks
+$user_role = $_SESSION['role'] ?? '';
+$is_super_admin = ($user_role === 'Super Admin');
+$is_admin = ($user_role === 'Admin' || $user_role === 'Super Admin');
+
+// Handle Status Update (Admin/SuperAdmin only)
+if (isset($_POST['update_status']) && isset($_POST['assessment_id']) && $is_admin) {
+    $aid = (int)$_POST['assessment_id'];
+    $new_status = mysqli_real_escape_string($conn, $_POST['new_status']);
+    $valid_statuses = ['Draft', 'Complete', 'Submitted'];
+
+    if (in_array($new_status, $valid_statuses)) {
+        if (mysqli_query($conn, "UPDATE integration_assessments SET assessment_status='$new_status', last_saved_at=NOW() WHERE assessment_id=$aid")) {
+            $_SESSION['success_msg'] = "Assessment #$aid status updated to '$new_status' successfully.";
+        } else {
+            $_SESSION['error_msg'] = "Error updating status: " . mysqli_error($conn);
+        }
+    } else {
+        $_SESSION['error_msg'] = "Invalid status value.";
+    }
+    header('Location: facility_integration_assessment_list.php');
+    exit();
+}
+
+// Handle DELETE with soft delete for Super Admin only
 if (isset($_GET['delete']) && is_numeric($_GET['delete'])) {
     $did = (int)$_GET['delete'];
-    mysqli_query($conn, "DELETE FROM integration_assessment_emr_systems WHERE assessment_id=$did");
-    if (mysqli_query($conn, "DELETE FROM integration_assessments WHERE assessment_id=$did"))
-        $_SESSION['success_msg'] = 'Assessment deleted.';
-    else
-        $_SESSION['error_msg'] = 'Error deleting: ' . mysqli_error($conn);
-    header('Location: integration_assessment_list.php'); exit();
+
+    // Check if user has permission to delete
+    if (!$is_super_admin) {
+        $_SESSION['error_msg'] = 'You do not have permission to delete assessments. Only Super Admin can delete.';
+        header('Location: facility_integration_assessment_list.php');
+        exit();
+    }
+
+    // Get assessment data before deletion for archiving
+    $assessment_query = mysqli_query($conn, "SELECT * FROM integration_assessments WHERE assessment_id=$did");
+    if ($assessment = mysqli_fetch_assoc($assessment_query)) {
+        // Get EMR systems for this assessment
+        $emr_systems = [];
+        $emr_query = mysqli_query($conn, "SELECT * FROM integration_assessment_emr_systems WHERE assessment_id=$did");
+        while ($emr = mysqli_fetch_assoc($emr_query)) {
+            $emr_systems[] = $emr;
+        }
+
+        // Build INSERT query for deleted table (simplified - use the full version from previous response)
+        $deleted_data = [
+            'original_assessment_id' => $assessment['assessment_id'],
+            'facility_id' => $assessment['facility_id'],
+            'assessment_period' => $assessment['assessment_period'],
+            'facility_name' => $assessment['facility_name'],
+            'mflcode' => $assessment['mflcode'],
+            'county_name' => $assessment['county_name'],
+            'subcounty_name' => $assessment['subcounty_name'],
+            'owner' => $assessment['owner'],
+            'sdp' => $assessment['sdp'],
+            'agency' => $assessment['agency'],
+            'emr' => $assessment['emr'],
+            'emrstatus' => $assessment['emrstatus'],
+            'infrastructuretype' => $assessment['infrastructuretype'],
+            'latitude' => $assessment['latitude'],
+            'longitude' => $assessment['longitude'],
+            'level_of_care_name' => $assessment['level_of_care_name'],
+            'assessment_status' => $assessment['assessment_status'],
+            'sections_saved' => $assessment['sections_saved'],
+            'collected_by' => $assessment['collected_by'],
+            'collection_date' => $assessment['collection_date'],
+            'supported_by_usdos_ip' => $assessment['supported_by_usdos_ip'],
+            'is_art_site' => $assessment['is_art_site'],
+            'hiv_tb_integrated' => $assessment['hiv_tb_integrated'],
+            'hiv_tb_integration_model' => $assessment['hiv_tb_integration_model'],
+            'tx_curr' => $assessment['tx_curr'],
+            'tx_curr_pmtct' => $assessment['tx_curr_pmtct'],
+            'plhiv_integrated_care' => $assessment['plhiv_integrated_care'],
+            'pmtct_integrated_mnch' => $assessment['pmtct_integrated_mnch'],
+            'hts_integrated_opd' => $assessment['hts_integrated_opd'],
+            'hts_integrated_ipd' => $assessment['hts_integrated_ipd'],
+            'hts_integrated_mnch' => $assessment['hts_integrated_mnch'],
+            'prep_integrated_opd' => $assessment['prep_integrated_opd'],
+            'prep_integrated_ipd' => $assessment['prep_integrated_ipd'],
+            'prep_integrated_mnch' => $assessment['prep_integrated_mnch'],
+            'uses_emr' => $assessment['uses_emr'],
+            'no_emr_reasons' => $assessment['no_emr_reasons'],
+            'single_unified_emr' => $assessment['single_unified_emr'],
+            'emr_at_opd' => $assessment['emr_at_opd'],
+            'emr_opd_other' => $assessment['emr_opd_other'],
+            'emr_at_ipd' => $assessment['emr_at_ipd'],
+            'emr_ipd_other' => $assessment['emr_ipd_other'],
+            'emr_at_mnch' => $assessment['emr_at_mnch'],
+            'emr_mnch_other' => $assessment['emr_mnch_other'],
+            'emr_at_ccc' => $assessment['emr_at_ccc'],
+            'emr_ccc_other' => $assessment['emr_ccc_other'],
+            'emr_at_pmtct' => $assessment['emr_at_pmtct'],
+            'emr_pmtct_other' => $assessment['emr_pmtct_other'],
+            'emr_at_lab' => $assessment['emr_at_lab'],
+            'emr_lab_other' => $assessment['emr_lab_other'],
+            'lab_manifest_in_use' => $assessment['lab_manifest_in_use'],
+            'tibu_lite_lims_in_use' => $assessment['tibu_lite_lims_in_use'],
+            'emr_at_pharmacy' => $assessment['emr_at_pharmacy'],
+            'emr_pharmacy_other' => $assessment['emr_pharmacy_other'],
+            'pharmacy_webadt_in_use' => $assessment['pharmacy_webadt_in_use'],
+            'emr_interoperable_his' => $assessment['emr_interoperable_his'],
+            'hcw_total_pepfar' => $assessment['hcw_total_pepfar'],
+            'hcw_clinical_pepfar' => $assessment['hcw_clinical_pepfar'],
+            'hcw_nonclinical_pepfar' => $assessment['hcw_nonclinical_pepfar'],
+            'hcw_data_pepfar' => $assessment['hcw_data_pepfar'],
+            'hcw_community_pepfar' => $assessment['hcw_community_pepfar'],
+            'hcw_other_pepfar' => $assessment['hcw_other_pepfar'],
+            'hcw_transitioned_clinical' => $assessment['hcw_transitioned_clinical'],
+            'hcw_transitioned_nonclinical' => $assessment['hcw_transitioned_nonclinical'],
+            'hcw_transitioned_data' => $assessment['hcw_transitioned_data'],
+            'hcw_transitioned_community' => $assessment['hcw_transitioned_community'],
+            'hcw_transitioned_other' => $assessment['hcw_transitioned_other'],
+            'plhiv_enrolled_sha' => $assessment['plhiv_enrolled_sha'],
+            'plhiv_sha_premium_paid' => $assessment['plhiv_sha_premium_paid'],
+            'pbfw_enrolled_sha' => $assessment['pbfw_enrolled_sha'],
+            'pbfw_sha_premium_paid' => $assessment['pbfw_sha_premium_paid'],
+            'sha_claims_submitted_ontime' => $assessment['sha_claims_submitted_ontime'],
+            'sha_reimbursements_monthly' => $assessment['sha_reimbursements_monthly'],
+            'ta_visits_total' => $assessment['ta_visits_total'],
+            'ta_visits_moh_only' => $assessment['ta_visits_moh_only'],
+            'fif_collection_in_place' => $assessment['fif_collection_in_place'],
+            'fif_includes_hiv_tb_pmtct' => $assessment['fif_includes_hiv_tb_pmtct'],
+            'sha_capitation_hiv_tb' => $assessment['sha_capitation_hiv_tb'],
+            'deaths_all_cause' => $assessment['deaths_all_cause'],
+            'deaths_hiv_related' => $assessment['deaths_hiv_related'],
+            'deaths_hiv_pre_art' => $assessment['deaths_hiv_pre_art'],
+            'deaths_tb' => $assessment['deaths_tb'],
+            'deaths_maternal' => $assessment['deaths_maternal'],
+            'deaths_perinatal' => $assessment['deaths_perinatal'],
+            'leadership_commitment' => $assessment['leadership_commitment'],
+            'transition_plan' => $assessment['transition_plan'],
+            'hiv_in_awp' => $assessment['hiv_in_awp'],
+            'hrh_gap' => $assessment['hrh_gap'],
+            'staff_multiskilled' => $assessment['staff_multiskilled'],
+            'roving_staff' => $assessment['roving_staff'],
+            'infrastructure_capacity' => $assessment['infrastructure_capacity'],
+            'space_adequacy' => $assessment['space_adequacy'],
+            'service_delivery_without_ccc' => $assessment['service_delivery_without_ccc'],
+            'avg_wait_time' => $assessment['avg_wait_time'],
+            'data_integration_level' => $assessment['data_integration_level'],
+            'financing_coverage' => $assessment['financing_coverage'],
+            'disruption_risk' => $assessment['disruption_risk'],
+            'integration_barriers' => $assessment['integration_barriers'],
+            'lab_specimen_referral' => $assessment['lab_specimen_referral'],
+            'lab_referral_county_funded' => $assessment['lab_referral_county_funded'],
+            'lab_iso15189_accredited' => $assessment['lab_iso15189_accredited'],
+            'lab_kenas_fee_support' => $assessment['lab_kenas_fee_support'],
+            'lab_lcqi_implementing' => $assessment['lab_lcqi_implementing'],
+            'lab_lcqi_internal_audits' => $assessment['lab_lcqi_internal_audits'],
+            'lab_eqa_all_tests' => $assessment['lab_eqa_all_tests'],
+            'lab_sla_equipment' => $assessment['lab_sla_equipment'],
+            'lab_sla_support' => $assessment['lab_sla_support'],
+            'lab_lims_in_place' => $assessment['lab_lims_in_place'],
+            'lab_lims_emr_integrated' => $assessment['lab_lims_emr_integrated'],
+            'lab_lims_interoperable' => $assessment['lab_lims_interoperable'],
+            'lab_his_integration_guide' => $assessment['lab_his_integration_guide'],
+            'lab_dedicated_his_staff' => $assessment['lab_dedicated_his_staff'],
+            'lab_bsc_calibration_current' => $assessment['lab_bsc_calibration_current'],
+            'lab_shipping_cost_support' => $assessment['lab_shipping_cost_support'],
+            'lab_biosafety_trained' => $assessment['lab_biosafety_trained'],
+            'lab_hepb_vaccinated' => $assessment['lab_hepb_vaccinated'],
+            'lab_ipc_committee' => $assessment['lab_ipc_committee'],
+            'lab_ipc_workplan' => $assessment['lab_ipc_workplan'],
+            'lab_moh_virtual_academy' => $assessment['lab_moh_virtual_academy'],
+            'comm_hiv_feedback_mechanism' => $assessment['comm_hiv_feedback_mechanism'],
+            'comm_roc_feedback_used' => $assessment['comm_roc_feedback_used'],
+            'comm_community_representation' => $assessment['comm_community_representation'],
+            'comm_plhiv_in_discussions' => $assessment['comm_plhiv_in_discussions'],
+            'comm_health_talks_plhiv' => $assessment['comm_health_talks_plhiv'],
+            'sc_khis_reports_monthly' => $assessment['sc_khis_reports_monthly'],
+            'sc_stockout_arvs' => $assessment['sc_stockout_arvs'],
+            'sc_stockout_tb_drugs' => $assessment['sc_stockout_tb_drugs'],
+            'sc_stockout_hiv_reagents' => $assessment['sc_stockout_hiv_reagents'],
+            'sc_stockout_tb_reagents' => $assessment['sc_stockout_tb_reagents'],
+            'phc_chp_referrals' => $assessment['phc_chp_referrals'],
+            'phc_chwp_tracing' => $assessment['phc_chwp_tracing'],
+            'last_section_saved' => $assessment['last_section_saved'],
+            'last_saved_at' => $assessment['last_saved_at'],
+            'last_saved_by' => $assessment['last_saved_by'],
+            'deleted_by' => $_SESSION['full_name'] ?? $_SESSION['username'] ?? 'Unknown',
+            'deleted_at' => date('Y-m-d H:i:s')
+        ];
+
+        $columns = array_keys($deleted_data);
+        $values = array_map(function($val) use ($conn) {
+            return "'" . mysqli_real_escape_string($conn, $val) . "'";
+        }, array_values($deleted_data));
+
+        $insert_query = "INSERT INTO deleted_facility_integration_assessments (" . implode(',', $columns) . ")
+                         VALUES (" . implode(',', $values) . ")";
+
+        if (mysqli_query($conn, $insert_query)) {
+            mysqli_query($conn, "DELETE FROM integration_assessment_emr_systems WHERE assessment_id=$did");
+            if (mysqli_query($conn, "DELETE FROM integration_assessments WHERE assessment_id=$did")) {
+                $_SESSION['success_msg'] = 'Assessment deleted and archived successfully.';
+            } else {
+                $_SESSION['error_msg'] = 'Error deleting assessment: ' . mysqli_error($conn);
+            }
+        } else {
+            $_SESSION['error_msg'] = 'Error archiving assessment: ' . mysqli_error($conn);
+        }
+    } else {
+        $_SESSION['error_msg'] = 'Assessment not found.';
+    }
+
+    header('Location: facility_integration_assessment_list.php');
+    exit();
 }
 
 $period=$_GET['period']??''; $county=$_GET['county']??''; $agency=$_GET['agency']??'';
@@ -109,7 +308,7 @@ tr:hover td{background:#f8faff;}
 .prog-bar{width:80px;height:7px;background:#e5e7eb;border-radius:99px;overflow:hidden;display:inline-block;vertical-align:middle;margin-left:6px;}
 .prog-fill{height:100%;border-radius:99px;background:linear-gradient(90deg,var(--teal),var(--green));}
 /* Actions */
-.actions{display:flex;gap:6px;}
+.actions{display:flex;gap:6px;flex-wrap:wrap;}
 .btn-icon{padding:5px 9px;border-radius:6px;font-size:11px;font-weight:600;text-decoration:none;transition:.15s;display:inline-flex;align-items:center;gap:4px;border:none;cursor:pointer;}
 .btn-view{background:#e8edf8;color:var(--navy);}
 .btn-view:hover{background:#d6dff0;}
@@ -117,6 +316,13 @@ tr:hover td{background:#f8faff;}
 .btn-edit:hover{background:#ffe69c;}
 .btn-delete{background:#f8d7da;color:#721c24;}
 .btn-delete:hover{background:#f5c6cb;}
+.btn-delete-disabled{background:#e2e3e5;color:#6c757d;cursor:not-allowed;}
+.btn-status{background:#e8edf8;color:var(--navy);font-size:10px;padding:4px 8px;}
+.btn-status:hover{background:#d6dff0;}
+/* Status dropdown */
+.status-form{display:inline-block;margin:0;padding:0;}
+.status-select{font-size:10px;padding:4px 6px;border-radius:4px;border:1px solid var(--border);background:#fff;}
+.status-submit{background:var(--green);color:#fff;border:none;padding:4px 8px;border-radius:4px;font-size:10px;cursor:pointer;margin-left:4px;}
 /* Pagination */
 .pagination{display:flex;justify-content:center;gap:6px;margin:20px 0;}
 .page-link{display:block;padding:7px 13px;background:var(--card);border:1px solid var(--border);border-radius:7px;color:var(--navy);text-decoration:none;font-size:13px;font-weight:600;transition:.15s;}
@@ -181,7 +387,7 @@ tr:hover td{background:#f8faff;}
         <input type="date" name="date_to" value="<?= htmlspecialchars($date_to) ?>"></div>
     <div style="display:flex;gap:7px;align-items:flex-end">
         <button type="submit" class="btn-filter"><i class="fas fa-filter"></i> Apply</button>
-        <a href="integration_assessment_list.php" class="btn-reset"><i class="fas fa-undo"></i> Reset</a>
+        <a href="facility_integration_assessment_list.php" class="btn-reset"><i class="fas fa-undo"></i> Reset</a>
     </div>
 </form>
 
@@ -225,6 +431,8 @@ $kpi_all = mysqli_fetch_assoc(mysqli_query($conn,
                 $n=count($ss); $pct=round($n/$total_sections*100);
                 $status=$row['assessment_status']??'Draft';
                 $status_cls=['Draft'=>'b-draft','Complete'=>'b-complete','Submitted'=>'b-submitted'][$status]??'b-draft';
+                $can_delete = $is_super_admin;
+                $can_update_status = $is_admin;
             ?>
             <tr>
                 <td><strong style="color:var(--navy)">#<?= $row['assessment_id'] ?></strong></td>
@@ -235,7 +443,27 @@ $kpi_all = mysqli_fetch_assoc(mysqli_query($conn,
                 <td><?= htmlspecialchars($row['level_of_care_name']??'') ?></td>
                 <td><span class="badge <?= $row['is_art_site']==='Yes'?'b-success':'b-danger' ?>"><?= $row['is_art_site']??'—' ?></span></td>
                 <td><span class="badge <?= $row['uses_emr']==='Yes'?'b-success':($row['uses_emr']==='No'?'b-warning':'b-info') ?>"><?= $row['uses_emr']??'—' ?></span></td>
-                <td><span class="badge <?= $status_cls ?>"><?= $status ?></span></td>
+                <td>
+                    <span class="badge <?= $status_cls ?>"><?= $status ?></span>
+                    <?php if ($can_update_status && $status === 'Submitted'): ?>
+                    <form method="POST" class="status-form" style="display:inline-block; margin-left:5px;" onsubmit="return confirm('Mark this assessment as Complete? This will allow the report to be finalized.')">
+                        <input type="hidden" name="assessment_id" value="<?= $row['assessment_id'] ?>">
+                        <input type="hidden" name="new_status" value="Complete">
+                        <button type="submit" name="update_status" class="btn-status" title="Mark as Complete">
+                            <i class="fas fa-check-circle"></i> Mark Complete
+                        </button>
+                    </form>
+                    <?php endif; ?>
+                    <?php if ($can_update_status && $status === 'Complete'): ?>
+                    <form method="POST" class="status-form" style="display:inline-block; margin-left:5px;" onsubmit="return confirm('Return this assessment to Submitted status?')">
+                        <input type="hidden" name="assessment_id" value="<?= $row['assessment_id'] ?>">
+                        <input type="hidden" name="new_status" value="Submitted">
+                        <button type="submit" name="update_status" class="btn-status" style="background:#ffc107;color:#000;" title="Return to Submitted">
+                            <i class="fas fa-undo"></i> Revert
+                        </button>
+                    </form>
+                    <?php endif; ?>
+                </td>
                 <td>
                     <span style="font-size:11px;font-weight:700;color:<?= $pct>=100?'#155724':($pct>=50?'#856404':'#721c24') ?>"><?= $n ?>/<?= $total_sections ?></span>
                     <span class="prog-bar"><span class="prog-fill" style="width:<?= $pct ?>%"></span></span>
@@ -245,13 +473,25 @@ $kpi_all = mysqli_fetch_assoc(mysqli_query($conn,
                 <td style="font-size:11px"><?= htmlspecialchars($row['collected_by']??'') ?></td>
                 <td style="font-size:11px"><?= $row['collection_date']?date('d M Y',strtotime($row['collection_date'])):'—' ?></td>
                 <td class="actions">
-                    <a href="facility_integration_assessment.php?id=<?= $row['assessment_id'] ?>" class="btn-icon btn-edit" title="Continue editing">
-                        <i class="fas fa-edit"></i> <?= $status==='Draft'?'Continue':'Edit' ?>
+                    <!-- VIEW BUTTON - Always visible for all statuses -->
+                    <a href="view_facility_integration_assessment.php?id=<?= $row['assessment_id'] ?>" class="btn-icon btn-view" title="View Assessment">
+                        <i class="fas fa-eye"></i> View
                     </a>
+
+                    <!-- EDIT BUTTON - For Draft/Complete status, or Admin can edit Submitted -->
+                    <?php if ($status === 'Draft' || $status === 'Complete' || ($status === 'Submitted' && $is_admin)): ?>
+                    <a href="facility_integration_assessment.php?id=<?= $row['assessment_id'] ?>&edit=1" class="btn-icon btn-edit" title="Edit Assessment">
+                        <i class="fas fa-edit"></i> Edit
+                    </a>
+                    <?php endif; ?>
+
+                    <!-- DELETE BUTTON - Super Admin only -->
+                    <?php if ($can_delete): ?>
                     <a href="?delete=<?= $row['assessment_id'] ?>" class="btn-icon btn-delete" title="Delete"
-                       onclick="return confirm('Delete assessment #<?= $row['assessment_id'] ?> for <?= addslashes($row['facility_name']??'') ?>? This cannot be undone.')">
+                       onclick="return confirm('Delete assessment #<?= $row['assessment_id'] ?> for <?= addslashes($row['facility_name']??'') ?>? This action will archive the data and cannot be undone.')">
                         <i class="fas fa-trash"></i>
                     </a>
+                    <?php endif; ?>
                 </td>
             </tr>
             <?php endwhile; else: ?>
