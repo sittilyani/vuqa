@@ -41,7 +41,7 @@ $scores_query = "
         ts2.section_code,
         ts2.section_name,
         ts2.section_category
-    FROM transition_scores ts
+    FROM transition_raw_scores ts
     JOIN transition_indicators ti ON ts.indicator_id = ti.indicator_id
     JOIN transition_sections ts2 ON ti.section_id = ts2.section_id
     WHERE ts.assessment_id = $assessment_id
@@ -438,7 +438,7 @@ $score_labels = [
                             <?php if ($indicator['ip_score'] !== null): ?>
                             <span class="score-indicator score-<?= $ip ?>"><?= $ip ?></span>
                             <?php else: ?>
-                            <span style="color: #999;">—</span>
+                            <span style="color: #999;">ï¿½</span>
                             <?php endif; ?>
                         </td>
                         <td>

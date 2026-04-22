@@ -326,7 +326,7 @@ if (!$isAllowed) {
                 <div class="nav-section">
                     <div class="nav-section-title">Transition</div>
                     <div class="nav-item">
-                        <a href="../transitions/transition_index.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
+                        <a href="../transitions/transition_assessment.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
                             <img src="../assets/fontawesome/svgs-full/solid/unlock.svg" alt="" width="16" height="16" style="filter:invert(1)">
                             Transition Assessment
                         </a>
@@ -335,6 +335,12 @@ if (!$isAllowed) {
                         <a href="../transitions/transition_dashboard.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
                             <img src="../assets/fontawesome/svgs-full/solid/exchange-alt.svg" alt="" width="16" height="16" style="filter:invert(1)">
                             Transition Dashboard
+                        </a>
+                    </div>
+                    <div class="nav-item">
+                        <a href="../transitions/view_transition_assessment.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
+                            <img src="../assets/fontawesome/svgs-full/solid/exchange-alt.svg" alt="" width="16" height="16" style="filter:invert(1)">
+                            Transition List
                         </a>
                     </div>
                     <div class="nav-item">
