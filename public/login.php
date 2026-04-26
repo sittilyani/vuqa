@@ -104,11 +104,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - </title>
-    <link rel="apple-touch-icon" sizes="180x180" href="../assests/favicons/apple-touch-icon.png">
-    <link rel="icon" type="image/png" sizes="32x32" href="../assests/favicons/favicon-32x32.png">
-    <link rel="icon" type="image/png" sizes="16x16" href="../assests/favicons/favicon-16x16.png">
-    <link rel="manifest" href="../assests/favicons/site.webmanifest">
+    <title>Vuqa Login</title>
+    <link rel="apple-touch-icon" sizes="180x180" href="../assets/favicon_io/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon_io/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="../assets/favicon_io/favicon-16x16.png">
+    <link rel="manifest" href="../assets/favicon_io/site.webmanifest">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         /* ---------- RESET & GLOBAL ---------- */
@@ -119,7 +119,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         body {
-            font-family: 'Segoe UI', 'Roboto', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: Arial, Helvetica, sans-serif;
             height: 100vh;
             display: flex;
             flex-direction: column;
@@ -137,27 +137,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             border-radius: 32px;
             box-shadow: 0 25px 45px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(255,255,255,0.1);
             width: 100%;
-            max-width: 500px;
+            max-width: 30%;
             margin: 1rem auto;
             text-align: center;
             transition: all 0.3s ease;
         }
-
-        /* responsive inner spacing */
-        @media (max-width: 550px) {
-            .login-container {
-                padding: 1.5rem 1.2rem 1.8rem;
-                border-radius: 28px;
-                max-width: 94%;
-            }
-        }
-
-        @media (max-width: 420px) {
-            .login-container {
-                padding: 1.2rem 1rem 1.5rem;
-            }
-        }
-
         /* logo image - fluid & touch-friendly */
         .login-container img {
             width: clamp(85px, 28vw, 130px);
@@ -170,13 +154,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .login-container h2 {
             font-size: clamp(1.6rem, 6vw, 2.2rem);
             font-weight: 700;
-            color: #1e2a3e;
+            color: #2D008A;
             margin-bottom: 0.25rem;
             letter-spacing: -0.3px;
         }
 
         .login-container p {
-            color: #5a6874;
+            color: #2D008A;
             font-size: clamp(0.85rem, 3.5vw, 1rem);
             margin-bottom: 1.5rem;
         }
@@ -204,7 +188,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .form-group label {
             font-weight: 600;
             font-size: 0.85rem;
-            color: #2c3e50;
+            color: #2D008A;
             display: block;
             margin-bottom: 0.4rem;
             letter-spacing: 0.3px;
@@ -228,7 +212,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             width: 100%;
             padding: 0.85rem 1rem 0.85rem 2.5rem;
             border: 1.5px solid #e2e8f0;
-            border-radius: 50px;
             font-size: 1rem;
             transition: all 0.2s;
             background: #fff;
@@ -245,10 +228,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .btn-submit {
             width: 100%;
             padding: 0.9rem;
-            background: #4361ee;
+            background: #2D008A;
             color: white;
             border: none;
-            border-radius: 50px;
             font-weight: 700;
             font-size: 1rem;
             cursor: pointer;
@@ -280,7 +262,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         .register p {
             font-size: 0.85rem;
-            color: #4a5b6e;
+            color: #2D008A;
             margin-bottom: 0;
         }
 
@@ -290,7 +272,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             bottom: 0;
             left: 0;
             width: 100%;
-            background: #4E95D9;
+            background: #2D008A;
             border-top: 1px solid rgba(0, 0, 0, 0.08);
             padding: 0.9rem 1.5rem;
             z-index: 1000;
@@ -341,6 +323,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             transform: translateY(-3px);
             background: #e0e8ff;
             color: #1e2fcf;
+        }
+        /* responsive inner spacing */
+        @media (max-width: 550px) {
+            .login-container {
+                padding: 1.5rem 1.2rem 1.8rem;
+                border-radius: 28px;
+                max-width: 94%;
+            }
+        }
+
+        @media (max-width: 420px) {
+            .login-container {
+                padding: 1.2rem 1rem 1.5rem;
+            }
         }
 
         /* adjust footer for very small devices */
@@ -455,6 +451,5 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
         </div>
     </footer>
-
 </body>
 </html>

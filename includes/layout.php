@@ -50,11 +50,11 @@ if (!$isAllowed) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TM - Management System</title>
-    <link rel="apple-touch-icon" sizes="180x180" href="../assests/favicons/apple-touch-icon.png">
-    <link rel="icon" type="image/png" sizes="32x32" href="../assests/favicons/favicon-32x32.png">
-    <link rel="icon" type="image/png" sizes="16x16" href="../assests/favicons/favicon-16x16.png">
-    <link rel="manifest" href="../assests/favicons/site.webmanifest">
+    <title>Vuqa</title>
+    <link rel="apple-touch-icon" sizes="180x180" href="../assets/favicon_io/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon_io/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="../assets/favicon_io/favicon-16x16.png">
+    <link rel="manifest" href="../assets/favicon_io/site.webmanifest">
     <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
@@ -64,10 +64,10 @@ if (!$isAllowed) {
         .app-wrapper{display:flex;height:100vh;width:100%;overflow:hidden}
 
         /* Sidebar Styles */
-        .sidebar{width:280px;background:#011f88;color:#fff;height:100vh;position:fixed;left:0;top:0;overflow-y:auto;transition:transform 0.3s ease;z-index:1000;box-shadow:4px 0 10px rgba(0,0,0,.1)}
+        .sidebar{max-width:280px;background:#2D008A;color:#fff;height:100vh;position:fixed;left:0;top:0;overflow-y:auto;transition:transform 0.3s ease;z-index:1000;box-shadow:4px 0 10px rgba(0,0,0,.1)}
         .sidebar::-webkit-scrollbar{width:6px}
-        .sidebar::-webkit-scrollbar-track{background:#334155}
-        .sidebar::-webkit-scrollbar-thumb{background:#475569;border-radius:3px}
+        .sidebar::-webkit-scrollbar-track{background:#AC80EE}
+        .sidebar::-webkit-scrollbar-thumb{background:#Ac80EE;border-radius:3px}
 
         /* Sidebar states */
         .sidebar.show{transform:translateX(0)}
@@ -86,7 +86,7 @@ if (!$isAllowed) {
         .user-details span{font-size:11px;color:#94a3b8}
         .nav-menu{padding:0 15px}
         .nav-section{margin-bottom:25px}
-        .nav-section-title{font-size:18px; font-weight: 600;text-transform:uppercase;letter-spacing:.5px;color: #80FF80;padding:0 10px;margin-bottom:10px}
+        .nav-section-title{font-size:18px; font-weight: 600;text-transform:uppercase;letter-spacing:.5px;color: #04B04B;padding:0 10px;margin-bottom:10px}
         .nav-item{list-style:none;margin-bottom:5px}
         .nav-link{display:flex;align-items:center;gap:12px;padding:12px 15px;color:#cbd5e1;text-decoration:none;border-radius:10px;transition:.3s;font-size:14px;cursor:pointer}
         .nav-link:hover{background:#334155;color:#fff}
@@ -102,19 +102,20 @@ if (!$isAllowed) {
 
         /* DateTime Display Styles */
         .datetime-display{display:flex;align-items:center;gap:10px;background:#f1f5f9;padding:8px 15px;border-radius:10px;color:#1e293b}
-        .datetime-display i,.datetime-display .time{color:#c00}
+        .datetime-display i,.datetime-display .time{color:#E41E39}
         .datetime-display .time{font-weight:600;font-size:1.1em;font-family:monospace}
         .datetime-display i{font-size:1.1em}
         .datetime-display .date{font-size:.9em;color:#64748b}
 
         .notification-btn{background:#f1f5f9;border:none;width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#475569;position:relative;cursor:pointer}
-        .notification-badge{position:absolute;top:-5px;right:-5px;background:#f72585;color:#fff;font-size:10px;padding:3px 6px;border-radius:30px;min-width:18px;text-align:center}
+        .notification-badge{position:absolute;top:-5px;right:-5px;background:#E41E39;color:#fff;font-size:10px;padding:3px 6px;border-radius:30px;min-width:18px;text-align:center}
         .user-dropdown{display:flex;align-items:center;gap:10px;background:#f1f5f9;padding:8px 15px;border-radius:10px;cursor:pointer}
-        .user-dropdown .avatar{width:35px;height:35px;background:#4361ee;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:600}
+        .user-dropdown .avatar{width:35px;height:35px;background:#AC80EE;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:600}
 
         /* Iframe Container */
         .iframe-container{flex:1;overflow-y:auto;padding:20px 25px;background:#f4f7fc}
         .iframe-container iframe{width:100%;height:100%;border:none;background:#fff;border-radius:15px;box-shadow:0 4px 12px rgba(0,0,0,.03)}
+        .img-vuqa{height: 32px; width: 76px;}
 
         /* Dropdown Menu */
         .dropdown-menu-custom{position:absolute;right:0;top:100%;margin-top:10px;background:#fff;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.1);min-width:200px;display:none;z-index:1000}
@@ -125,7 +126,7 @@ if (!$isAllowed) {
 
         /* Loading Spinner */
         .iframe-loading{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;display:none}
-        .spinner{width:40px;height:40px;border:3px solid #e2e8f0;border-top-color:#4361ee;border-radius:50%;animation:spin 1s linear infinite}
+        .spinner{width:40px;height:40px;border:3px solid #e2e8f0;border-top-color:#AC80EE;border-radius:50%;animation:spin 1s linear infinite}
         @keyframes spin{to{transform:rotate(360deg)}}
 
         /* Overlay for mobile */
@@ -196,15 +197,15 @@ if (!$isAllowed) {
         <div class="sidebar" id="sidebar">
             <div class="sidebar-header">
                 <div class="logo-area">
-                    <div class="logo-icon"><i class="bi bi-shop"></i></div>
                     <div class="logo-text">
                         <h3>Program Monitoring</h3>
-                        <p>Monitoring Trainings, Meetings, Mentorship and participants costs</p>
+                        <p>Staff monitoring, trainings, meetings, mentorship and participants registration</p>
                     </div>
                 </div>
             </div>
 
             <div class="user-info">
+
                 <div class="user-avatar"><?php echo strtoupper(substr($userName, 0, 1)); ?></div>
                 <div class="user-details">
                     <h4><?php echo htmlspecialchars($userName); ?></h4>
@@ -224,7 +225,6 @@ if (!$isAllowed) {
                             Employee Dashboard
                         </a>
                     </div>
-
 
                     <div class="nav-item">
                         <a href="../staff/staffslist.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
@@ -476,6 +476,9 @@ if (!$isAllowed) {
                     <button class="menu-toggle" onclick="toggleSidebar()" id="menuToggleBtn">
                         <i class="bi bi-list"></i>
                     </button>
+                    <a href="../includes/layout.php?page=../public/welcome.php">
+                    <img src="../assets/images/vuga_logo3_nbg.png" width="378" height="162" class="img-vuqa"alt="">
+                    </a>
                     <h1 class="page-title" id="pageTitle">Welcome</h1>
                 </div>
 
@@ -486,11 +489,6 @@ if (!$isAllowed) {
                         <span class="time" id="timeDisplay"><?php echo date('H:i:s'); ?></span>
                         <span class="date" id="dateDisplay"><?php echo date('D, M d, Y'); ?></span>
                     </div>
-
-                    <button class="notification-btn">
-                        <i class="bi bi-bell"></i>
-                        <span class="notification-badge">3</span>
-                    </button>
 
                     <div class="user-dropdown" onclick="toggleUserMenu()">
                         <div class="avatar"><?php echo strtoupper(substr($userName, 0, 1)); ?></div>
