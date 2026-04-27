@@ -187,6 +187,171 @@ if (isset($_GET['export'])) {
 
 <div class="page-body">
 
+<!-- This calculates the budgets dynamically --> 
+<div class="mb-3">
+    <button type="button" class="btn btn-primary" onclick="openPaymentModal()">
+        <i class="fas fa-money-bill-wave"></i> Process Payments
+    </button>
+</div>
+
+<!-- Payment Modal -->
+<div id="paymentModal" class="modal-overlay" style="display:none;">
+    <div class="modal-box" style="max-width:600px;">
+        <div class="modal-icon"><i class="fas fa-coins"></i></div>
+        <div class="modal-title">Process Participant Payments</div>
+
+        <form id="paymentForm">
+            <input type="hidden" name="training_id" value="<?php echo $training_id; ?>">
+
+            <div class="form-group">
+                <label>Apply to:</label>
+                <select name="apply_to" id="apply_to" class="form-control">
+                    <option value="all">All Participants</option>
+                    <option value="selected">Selected Participants Only</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Fare Amount (KES)</label>
+                <input type="number" name="fare_amount" id="fare_amount" class="form-control" step="0.01" value="0">
+            </div>
+
+            <div class="form-group">
+                <label>Airtime Amount (KES)</label>
+                <input type="number" name="airtime_amount" id="airtime_amount" class="form-control" step="0.01" value="0">
+            </div>
+
+            <div class="form-group">
+                <label>Perdiem Amount (KES)</label>
+                <input type="number" name="perdiem_amount" id="perdiem_amount" class="form-control" step="0.01" value="0">
+            </div>
+
+            <div class="form-group">
+                <label>Lunch Amount (KES)</label>
+                <input type="number" name="lunch_amount" id="lunch_amount" class="form-control" step="0.01" value="0">
+            </div>
+
+            <div class="form-group">
+                <label>Dinner Amount (KES)</label>
+                <input type="number" name="dinner_amount" id="dinner_amount" class="form-control" step="0.01" value="0">
+            </div>
+
+            <div class="form-group">
+                <label>Others Amount (KES)</label>
+                <input type="number" name="others_amount" id="others_amount" class="form-control" step="0.01" value="0">
+            </div>
+
+            <div class="form-group">
+                <label>Total Amount (KES)</label>
+                <input type="number" name="total_amount" id="total_amount" class="form-control" readonly style="background:#f0f0f0;">
+            </div>
+
+            <div id="selectedParticipantsDiv" style="display:none;">
+                <div class="form-group">
+                    <label>Selected Participants:</label>
+                    <div id="selectedCount"></div>
+                </div>
+            </div>
+
+            <div class="modal-actions" style="margin-top:20px;">
+                <button type="button" class="btn btn-outline" onclick="closePaymentModal()">Cancel</button>
+                <button type="button" class="btn btn-success" onclick="processPayments()">
+                    <i class="fas fa-check"></i> Process Payments
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+// Calculate total dynamically
+$('#fare_amount, #airtime_amount, #perdiem_amount, #lunch_amount, #dinner_amount, #others_amount').on('input', function() {
+    let fare = parseFloat($('#fare_amount').val()) || 0;
+    let airtime = parseFloat($('#airtime_amount').val()) || 0;
+    let perdiem = parseFloat($('#perdiem_amount').val()) || 0;
+    let lunch = parseFloat($('#lunch_amount').val()) || 0;
+    let dinner = parseFloat($('#dinner_amount').val()) || 0;
+    let others = parseFloat($('#others_amount').val()) || 0;
+    let total = fare + airtime + perdiem + lunch + dinner + others;
+    $('#total_amount').val(total.toFixed(2));
+});
+
+// Quick fill dropdown for lunch
+$('#lunch_amount').on('dblclick', function() {
+    let val = prompt("Set lunch amount for all participants:", $('#lunch_amount').val());
+    if(val !== null) $('#lunch_amount').val(val).trigger('input');
+});
+
+// Quick fill dropdown for dinner
+$('#dinner_amount').on('dblclick', function() {
+    let val = prompt("Set dinner amount for all participants:", $('#dinner_amount').val());
+    if(val !== null) $('#dinner_amount').val(val).trigger('input');
+});
+
+function openPaymentModal() {
+    // Load existing amounts from training settings via AJAX
+    $.get('get_training_allowances.php', { training_id: <?php echo $training_id; ?> }, function(data) {
+        if(data.success) {
+            $('#fare_amount').val(data.fare);
+            $('#airtime_amount').val(data.airtime);
+            $('#perdiem_amount').val(data.perdiem);
+            $('#lunch_amount').val(data.lunch);
+            $('#dinner_amount').val(data.dinner);
+            $('#fare_amount, #airtime_amount, #perdiem_amount, #lunch_amount, #dinner_amount, #others_amount').trigger('input');
+        }
+    }, 'json');
+
+    $('#paymentModal').fadeIn();
+}
+
+function closePaymentModal() {
+    $('#paymentModal').fadeOut();
+}
+
+function processPayments() {
+    let applyTo = $('#apply_to').val();
+    let selectedIds = [];
+
+    if(applyTo === 'selected') {
+        // Get checkboxes from registration table
+        $('input[name="participant_checkbox"]:checked').each(function() {
+            selectedIds.push($(this).val());
+        });
+
+        if(selectedIds.length === 0) {
+            alert('Please select at least one participant');
+            return;
+        }
+
+        $('#selectedCount').text(selectedIds.length + ' participants selected');
+        $('#selectedParticipantsDiv').show();
+    }
+
+    let formData = {
+        training_id: <?php echo $training_id; ?>,
+        action: applyTo === 'all' ? 'apply_to_all' : 'process_selected',
+        fare_amount: $('#fare_amount').val(),
+        airtime_amount: $('#airtime_amount').val(),
+        perdiem_amount: $('#perdiem_amount').val(),
+        lunch_amount: $('#lunch_amount').val(),
+        dinner_amount: $('#dinner_amount').val(),
+        others_amount: $('#others_amount').val()
+    };
+
+    if(applyTo === 'selected') {
+        formData.selected_ids = selectedIds;
+    }
+
+    $.post('process_payment.php', formData, function(response) {
+        if(response.success) {
+            alert(response.message);
+            location.reload();
+        } else {
+            alert('Error: ' + response.message);
+        }
+    }, 'json');
+}
+</script>
     <div class="card">
         <div class="card-header">
             <i class="fas fa-info-circle"></i> Training Details

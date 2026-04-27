@@ -579,7 +579,7 @@ foreach ($sections as $section) {
     </div>
 
     <!-- Quick Actions -->
-    <div class="quick-actions">
+    <!--<div class="quick-actions">
         <div class="action-card" onclick="startNewAssessment()">
             <div class="action-icon"><i class="fas fa-plus"></i></div>
             <div class="action-content">
@@ -601,7 +601,7 @@ foreach ($sections as $section) {
                 <p>See transition progress across counties and indicators</p>
             </div>
         </div>
-    </div>
+    </div>-->
 
     <!-- Assessment Setup -->
     <div class="setup-card" id="setupCard">
@@ -698,7 +698,7 @@ foreach ($sections as $section) {
         </div>
     </div>
 
-    <!-- Recent Assessments -->
+    <!--<!-- Recent Assessments
     <div class="recent-card" style="margin-top: 30px;">
         <div class="recent-title">
             <i class="fas fa-history"></i>
@@ -749,7 +749,7 @@ foreach ($sections as $section) {
                 <?php endif; ?>
             </tbody>
         </table>
-    </div>
+    </div> -->
 
     <!-- Footer Actions -->
     <div class="footer-actions">

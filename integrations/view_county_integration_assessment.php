@@ -457,7 +457,7 @@ if ($assessment['has_lab_twg'] === 'Yes') $twg_count++;
         <a href="county_integration_assessment_list.php"><i class="fas fa-arrow-left"></i> Back to List</a>
     </div>
 
-    <!-- Overall Score Card -->
+    <!-- Overall Score Card
     <div class="score-card">
         <div class="score-value"><?= round($total) ?>%</div>
         <div class="score-label">County Integration Readiness Score</div>
@@ -465,7 +465,7 @@ if ($assessment['has_lab_twg'] === 'Yes') $twg_count++;
         <div class="progress" style="background: rgba(255,255,255,0.3); margin-top: 15px;">
             <div class="progress-bar bg-<?= $clr ?>" style="width: <?= $total ?>%"></div>
         </div>
-    </div>
+    </div>  -->
 
     <!-- Key Metrics Dashboard -->
     <div class="card">
