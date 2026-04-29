@@ -439,6 +439,12 @@ if (!$isAllowed) {
                 <div class="nav-section">
                     <div class="nav-section-title">Digitization</div>
                     <div class="nav-item">
+                        <a href="../digitization/asset_master_register.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
+                            <img src="../assets/fontawesome/svgs-full/solid/box.svg" alt="" width="16" height="16" style="filter:invert(1)">
+                            Asset Master Register
+                        </a>
+                    </div>
+                    <div class="nav-item">
                         <a href="../digitization/digital_innovation_investments.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
                             <img src="../assets/fontawesome/svgs-full/solid/box.svg" alt="" width="16" height="16" style="filter:invert(1)">
                             Digital Registration

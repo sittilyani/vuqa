@@ -86,6 +86,39 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'get_asset') {
 }
 
 // ────────────────────────────────────────────────────────────────────
+//  AJAX — search asset master register
+// ────────────────────────────────────────────────────────────────────
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'search_register') {
+    $q    = $e($_GET['q'] ?? '');
+    $rows = [];
+    if (strlen($q) >= 2) {
+        $res = mysqli_query($conn,
+            "SELECT asset_id, asset_name, asset_category, model, serial_number,
+                    purchase_value, depreciation_percentage, dig_funder_name,
+                    lpo_number, project_name, acquisition_type, current_condition
+             FROM asset_master_register
+             WHERE is_active = 1
+               AND (asset_name LIKE '%$q%' OR serial_number LIKE '%$q%'
+                 OR model LIKE '%$q%' OR lpo_number LIKE '%$q%')
+             ORDER BY asset_name LIMIT 30");
+        while ($r = mysqli_fetch_assoc($res)) $rows[] = $r;
+    }
+    header('Content-Type: application/json');
+    echo json_encode($rows);
+    exit();
+}
+
+// ── AJAX: get single asset from register by ID ────────────────────
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'get_register_asset') {
+    $aid = $i($_GET['asset_id'] ?? 0);
+    $row = mysqli_fetch_assoc(mysqli_query($conn,
+        "SELECT * FROM asset_master_register WHERE asset_id = $aid LIMIT 1"));
+    header('Content-Type: application/json');
+    echo json_encode($row ?: []);
+    exit();
+}
+
+// ────────────────────────────────────────────────────────────────────
 //  AJAX — save / update investment record
 // ────────────────────────────────────────────────────────────────────
 if (isset($_POST['ajax_save'])) {
@@ -97,10 +130,16 @@ if (isset($_POST['ajax_save'])) {
     $mflcode             = $e($_POST['mflcode']               ?? '');
     $county_name         = $e($_POST['county_name']           ?? '');
     $subcounty_name      = $e($_POST['subcounty_name']        ?? '');
+    $latitude            = $f($_POST['latitude']              ?? 'NULL');
+    $longitude           = $f($_POST['longitude']             ?? 'NULL');
     $dit_asset_name      = $e($_POST['dit_asset_name']        ?? '');
     $asset_name          = $e($_POST['asset_name']            ?? '');
+    $asset_id_reg        = $i($_POST['asset_id_reg']          ?? 0);
     $dep_pct             = $f($_POST['depreciation_percentage'] ?? 0);
     $purchase_value      = $f($_POST['purchase_value']        ?? 0);
+    $tag_name            = $e($_POST['tag_name']              ?? '');
+    $quantity            = max(1, (int)($_POST['quantity']    ?? 1));
+    $total_cost          = $f($_POST['total_cost']            ?? 0);
     $issue_date          = $e($_POST['issue_date']            ?? '');
     $no_end_date         = (int)!empty($_POST['no_end_date']);
     $end_date_raw        = $e($_POST['end_date']              ?? '');
@@ -110,6 +149,19 @@ if (isset($_POST['ajax_save'])) {
     $emr_type_name       = $e($_POST['emr_type_name']         ?? '');
     $service_level       = $e($_POST['service_level']         ?? '');
     $lot_number          = $e($_POST['lot_number']            ?? '');
+    $name_of_user        = $e($_POST['name_of_user']          ?? '');
+    $department_name     = $e($_POST['department_name']       ?? '');
+    $date_of_verification = $e($_POST['date_of_verification'] ?? '');
+    $date_of_disposal    = $e($_POST['date_of_disposal']      ?? '');
+
+    // Derived SQL values
+    $lat_val   = ($latitude  === 'NULL' || $latitude  === '') ? 'NULL' : $latitude;
+    $lng_val   = ($longitude === 'NULL' || $longitude === '') ? 'NULL' : $longitude;
+    $dov_val   = $date_of_verification ? "'$date_of_verification'" : 'NULL';
+    $dod_val   = $date_of_disposal     ? "'$date_of_disposal'"     : 'NULL';
+    $aid_val   = ($asset_id_reg === 'NULL' || $asset_id_reg == 0) ? 'NULL' : $asset_id_reg;
+    // total_cost: use posted value or recalculate
+    $tc        = ($total_cost !== 'NULL' && $total_cost > 0) ? $total_cost : ($purchase_value !== 'NULL' ? $purchase_value * $quantity : 0);
 
     if (!$facility_id || !$dit_asset_name || !$purchase_value || !$issue_date || !$service_level) {
         echo json_encode(['success' => false, 'error' => 'Please fill all required fields.']);
@@ -138,16 +190,22 @@ if (isset($_POST['ajax_save'])) {
     if ($invest_id === 'NULL' || $invest_id == 0) {
         // INSERT
         $sql = "INSERT INTO digital_innovation_investments
-                    (facility_id, facility_name, mflcode, county_name, subcounty_name,
-                     dit_asset_name, asset_name, depreciation_percentage, purchase_value,
+                    (asset_id, facility_id, facility_name, mflcode, county_name, subcounty_name,
+                     latitude, longitude,
+                     dit_asset_name, asset_name, tag_name, quantity, total_cost,
+                     depreciation_percentage, purchase_value,
                      issue_date, end_date, no_end_date, current_value,
                      dig_funder_name, sdp_name, emr_type_name, service_level, lot_number,
+                     name_of_user, department_name, date_of_verification, date_of_disposal,
                      invest_status, created_by, created_at, updated_at)
                 VALUES
-                    ($facility_id,'$facility_name','$mflcode','$county_name','$subcounty_name',
-                     '$dit_asset_name','$asset_name',$dep_pct,$purchase_value,
+                    ($aid_val, $facility_id,'$facility_name','$mflcode','$county_name','$subcounty_name',
+                     $lat_val, $lng_val,
+                     '$dit_asset_name','$asset_name','$tag_name',$quantity,$tc,
+                     $dep_pct,$purchase_value,
                      '$issue_date',$end_date_val,$no_end_date,$current_value,
                      '$dig_funder_name','$sdp_name','$emr_type_name','$service_level','$lot_number',
+                     '$name_of_user','$department_name',$dov_val,$dod_val,
                      '$invest_status_s','".mysqli_real_escape_string($conn,$created_by)."', NOW(), NOW())";
         if (mysqli_query($conn, $sql)) {
             $new_id = mysqli_insert_id($conn);
@@ -158,14 +216,19 @@ if (isset($_POST['ajax_save'])) {
     } else {
         // UPDATE
         $sql = "UPDATE digital_innovation_investments SET
+                    asset_id=$aid_val,
                     facility_id=$facility_id, facility_name='$facility_name',
                     mflcode='$mflcode', county_name='$county_name', subcounty_name='$subcounty_name',
+                    latitude=$lat_val, longitude=$lng_val,
                     dit_asset_name='$dit_asset_name', asset_name='$asset_name',
+                    tag_name='$tag_name', quantity=$quantity, total_cost=$tc,
                     depreciation_percentage=$dep_pct, purchase_value=$purchase_value,
                     issue_date='$issue_date', end_date=$end_date_val, no_end_date=$no_end_date,
                     current_value=$current_value, dig_funder_name='$dig_funder_name',
                     sdp_name='$sdp_name', emr_type_name='$emr_type_name',
                     service_level='$service_level', lot_number='$lot_number',
+                    name_of_user='$name_of_user', department_name='$department_name',
+                    date_of_verification=$dov_val, date_of_disposal=$dod_val,
                     invest_status='$invest_status_s', updated_at=NOW()
                 WHERE invest_id=$invest_id";
         if (mysqli_query($conn, $sql)) {
@@ -301,6 +364,162 @@ if (isset($_POST['ajax_csv_import'])) {
     }
     fclose($handle);
     echo json_encode(['success' => true, 'imported' => $imported, 'skipped' => $skipped, 'errors' => $errors]);
+    exit();
+}
+
+// ────────────────────────────────────────────────────────────────────
+//  AJAX — Excel/XLSX import for investments
+// ────────────────────────────────────────────────────────────────────
+if (isset($_POST['ajax_excel_import'])) {
+    header('Content-Type: application/json');
+
+    if (empty($_FILES['xls_file']['tmp_name'])) {
+        echo json_encode(['success' => false, 'error' => 'No file uploaded.']);
+        exit();
+    }
+
+    $fname_up = $_FILES['xls_file']['name'];
+    $tmp_up   = $_FILES['xls_file']['tmp_name'];
+    $ext_up   = strtolower(pathinfo($fname_up, PATHINFO_EXTENSION));
+
+    $autoload = $base_path . '/vendor/autoload.php';
+    if (!file_exists($autoload)) {
+        echo json_encode(['success' => false, 'error' => 'PhpSpreadsheet not installed.']);
+        exit();
+    }
+    require_once $autoload;
+
+    try {
+        if ($ext_up === 'csv') {
+            $handle_up = fopen($tmp_up, 'r');
+            $raw_hdr   = array_map(fn($h) => strtolower(trim($h)), fgetcsv($handle_up));
+            $data_rows_up = [];
+            while (($rr = fgetcsv($handle_up)) !== false) $data_rows_up[] = $rr;
+            fclose($handle_up);
+        } else {
+            $reader_up   = \PhpOffice\PhpSpreadsheet\IOFactory::createReaderForFile($tmp_up);
+            $reader_up->setReadDataOnly(true);
+            $spreadsheet_up = $reader_up->load($tmp_up);
+            $sheet_up = $spreadsheet_up->getActiveSheet();
+            $all_rows_up = $sheet_up->toArray(null, true, true, false);
+            $raw_hdr  = array_map(fn($h) => strtolower(trim(str_replace(["","
+"], '', (string)($h ?? '')))), $all_rows_up[0]);
+            $data_rows_up = array_slice($all_rows_up, 1);
+        }
+    } catch (Exception $ex) {
+        echo json_encode(['success' => false, 'error' => 'Cannot read file: ' . $ex->getMessage()]);
+        exit();
+    }
+
+    $required_up = ['facility_name', 'dit_asset_name', 'purchase_value', 'issue_date', 'service_level'];
+    $missing_up  = array_diff($required_up, $raw_hdr);
+    if (!empty($missing_up)) {
+        echo json_encode(['success' => false,
+            'error' => 'Missing columns: ' . implode(', ', $missing_up)]);
+        exit();
+    }
+
+    $parse_date_up = function($v) {
+        if (!$v) return null;
+        if (is_numeric($v) && (float)$v > 1000) {
+            try { return \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject($v)->format('Y-m-d'); }
+            catch (Exception $e) { return null; }
+        }
+        if ($v instanceof \DateTime) return $v->format('Y-m-d');
+        if (is_string($v)) { $ts = strtotime($v); return $ts ? date('Y-m-d', $ts) : null; }
+        return null;
+    };
+
+    $imported_up = 0; $skipped_up = 0; $errors_up = [];
+    $cb_up = mysqli_real_escape_string($conn, $created_by);
+
+    foreach ($data_rows_up as $ridx_up => $row_raw_up) {
+        if (!is_array($row_raw_up)) { $skipped_up++; continue; }
+        $non_empty_up = array_filter($row_raw_up, fn($v) => $v !== null && $v !== '');
+        if (empty($non_empty_up)) continue;
+
+        $data_up = array_combine($raw_hdr, array_pad($row_raw_up, count($raw_hdr), ''));
+
+        $r_fname_up    = $e($data_up['facility_name']   ?? '');
+        $r_asset_up    = $e($data_up['dit_asset_name']  ?? '');
+        $r_pv_up_raw   = $data_up['purchase_value']     ?? 0;
+        $r_idate_up    = $parse_date_up($data_up['issue_date'] ?? '');
+        $r_slevel_up   = $e($data_up['service_level']   ?? '');
+
+        if (!$r_fname_up || !$r_asset_up || !is_numeric($r_pv_up_raw) || !$r_idate_up || !$r_slevel_up) {
+            $skipped_up++; continue;
+        }
+
+        $r_pv_up = (float)$r_pv_up_raw;
+        $r_mfl_up  = $e($data_up['mflcode'] ?? '');
+
+        // Lookup facility
+        $fac_up = mysqli_fetch_assoc(mysqli_query($conn,
+            "SELECT facility_id, facility_name, mflcode, county_name, subcounty_name, latitude, longitude
+             FROM facilities
+             WHERE " . ($r_mfl_up ? "mflcode='$r_mfl_up'" : "facility_name='$r_fname_up'") . " LIMIT 1"));
+        if (!$fac_up) { $skipped_up++; $errors_up[] = "Row ".($ridx_up+2).": facility '$r_fname_up' not found"; continue; }
+
+        $fid_up    = (int)$fac_up['facility_id'];
+        $fn_up     = $e($fac_up['facility_name']);
+        $mfl_up    = $e($fac_up['mflcode'] ?? '');
+        $cty_up    = $e($fac_up['county_name'] ?? '');
+        $sub_up    = $e($fac_up['subcounty_name'] ?? '');
+        $lat_up    = is_numeric($fac_up['latitude'])  ? (float)$fac_up['latitude']  : 'NULL';
+        $lng_up    = is_numeric($fac_up['longitude']) ? (float)$fac_up['longitude'] : 'NULL';
+
+        // Lookup asset type
+        $arow_up = mysqli_fetch_assoc(mysqli_query($conn,
+            "SELECT dit_asset_name, depreciation_percentage FROM digital_investments_assets WHERE dit_asset_name='$r_asset_up' LIMIT 1"));
+        if (!$arow_up) { $skipped_up++; $errors_up[] = "Row ".($ridx_up+2).": asset type '$r_asset_up' not found"; continue; }
+
+        $dep_up  = (float)$arow_up['depreciation_percentage'];
+        $diff_up = mysqli_fetch_assoc(mysqli_query($conn, "SELECT TIMESTAMPDIFF(MONTH,'$r_idate_up',NOW()) AS m"));
+        $mo_up   = max(0, (int)($diff_up['m'] ?? 0));
+        $cv_up   = max(0, round($r_pv_up * pow(1 - $dep_up / 100, $mo_up / 12), 2));
+
+        $no_end_up  = (int)(!empty($data_up['no_end_date']) && strtolower($data_up['no_end_date']) !== '0');
+        $edate_r_up = $parse_date_up($data_up['end_date'] ?? '');
+        $edate_up   = ($no_end_up || !$edate_r_up) ? 'NULL' : "'$edate_r_up'";
+
+        $tag_up     = $e($data_up['tag_name']             ?? '');
+        $qty_up     = max(1, (int)($data_up['quantity']   ?? 1));
+        $tc_up      = round($r_pv_up * $qty_up, 2);
+        $funder_up  = $e($data_up['dig_funder_name']      ?? '');
+        $sdp_up     = $e($data_up['sdp_name']             ?? '');
+        $emr_up     = $e($data_up['emr_type_name']        ?? '');
+        $lot_up     = $e($data_up['lot_number']           ?? '');
+        $user_up    = $e($data_up['name_of_user']         ?? '');
+        $dept_up    = $e($data_up['department_name']      ?? '');
+        $dov_up_r   = $parse_date_up($data_up['date_of_verification'] ?? '');
+        $dov_up     = $dov_up_r ? "'$dov_up_r'" : 'NULL';
+
+        $is_s_up = ($no_end_up || !$edate_r_up || strtotime($edate_r_up) >= time()) ? 'Active' : 'Expired';
+
+        $ins_up = "INSERT INTO digital_innovation_investments
+                    (facility_id, facility_name, mflcode, county_name, subcounty_name,
+                     latitude, longitude,
+                     dit_asset_name, asset_name, tag_name, quantity, total_cost,
+                     depreciation_percentage, purchase_value,
+                     issue_date, end_date, no_end_date, current_value,
+                     dig_funder_name, sdp_name, emr_type_name, service_level, lot_number,
+                     name_of_user, department_name, date_of_verification,
+                     invest_status, created_by, created_at, updated_at)
+                   VALUES
+                    ($fid_up,'$fn_up','$mfl_up','$cty_up','$sub_up',
+                     $lat_up, $lng_up,
+                     '$r_asset_up','$r_asset_up','$tag_up',$qty_up,$tc_up,
+                     $dep_up,$r_pv_up,
+                     '$r_idate_up',$edate_up,$no_end_up,$cv_up,
+                     '$funder_up','$sdp_up','$emr_up','$r_slevel_up','$lot_up',
+                     '$user_up','$dept_up',$dov_up,
+                     '$is_s_up','$cb_up',NOW(),NOW())";
+
+        if (mysqli_query($conn, $ins_up)) { $imported_up++; }
+        else { $errors_up[] = "Row ".($ridx_up+2).": ".mysqli_error($conn); $skipped_up++; }
+    }
+
+    echo json_encode(['success' => true, 'imported' => $imported_up, 'skipped' => $skipped_up, 'errors' => $errors_up]);
     exit();
 }
 
@@ -573,6 +792,8 @@ tbody td{padding:9px 12px;vertical-align:middle;}
         <a href="javascript:void(0)" onclick="showTab('form')"><i class="fas fa-plus"></i> New Record</a>
         <a href="javascript:void(0)" onclick="showTab('list')"><i class="fas fa-list"></i> All Records</a>
         <a href="javascript:void(0)" onclick="showTab('csv')"><i class="fas fa-file-csv"></i> Import CSV</a>
+        <a href="javascript:void(0)" onclick="showTab('excel')"><i class="fas fa-file-excel"></i> Import Excel</a>
+        <a href="asset_master_register.php"><i class="fas fa-clipboard-list"></i> Asset Register</a>
         <a href="../dashboard.php"><i class="fas fa-tachometer-alt"></i> Dashboard</a>
     </div>
 </div>
@@ -587,6 +808,9 @@ tbody td{padding:9px 12px;vertical-align:middle;}
     </button>
     <button class="tab-btn" id="tab_csv" onclick="showTab('csv')">
         <i class="fas fa-file-csv"></i> Import CSV
+    </button>
+    <button class="tab-btn" id="tab_excel" onclick="showTab('excel')">
+        <i class="fas fa-file-excel"></i> Import Excel
     </button>
 </div>
 
@@ -633,6 +857,8 @@ tbody td{padding:9px 12px;vertical-align:middle;}
                 <div class="fg"><label>SDP</label><span id="fc_sdp_fac">—</span></div>
                 <div class="fg"><label>Agency</label><span id="fc_agency">—</span></div>
                 <div class="fg"><label>EMR</label><span id="fc_emr">—</span></div>
+                <div class="fg"><label>Latitude</label><span id="fc_lat">—</span></div>
+                <div class="fg"><label>Longitude</label><span id="fc_lng">—</span></div>
             </div>
         </div>
 
@@ -643,6 +869,8 @@ tbody td{padding:9px 12px;vertical-align:middle;}
         <input type="hidden" id="h_county"        value="<?= $edit_row ? htmlspecialchars($edit_row['county_name']) : '' ?>">
         <input type="hidden" id="h_subcounty"     value="<?= $edit_row ? htmlspecialchars($edit_row['subcounty_name']) : '' ?>">
         <input type="hidden" id="h_invest_id"     value="<?= $edit_row ? htmlspecialchars($edit_row['invest_id']) : '' ?>">
+        <input type="hidden" id="h_latitude"      value="<?= $edit_row ? htmlspecialchars($edit_row['latitude'] ?? '') : '' ?>">
+        <input type="hidden" id="h_longitude"     value="<?= $edit_row ? htmlspecialchars($edit_row['longitude'] ?? '') : '' ?>">
     </div>
 </div>
 
@@ -655,11 +883,48 @@ tbody td{padding:9px 12px;vertical-align:middle;}
         <div class="divider-label"><i class="fas fa-microchip"></i> Asset Information</div>
         <div class="form-grid">
 
-            <!-- Digital Asset -->
+            <!-- Asset from Master Register -->
+            <div class="form-group full" style="margin-bottom:0">
+                <label><i class="fas fa-clipboard-list" style="color:var(--primary)"></i>
+                  Link to Asset Master Register
+                  <small style="font-weight:400;color:var(--muted)">(search by name, serial or model — auto-fills details)</small>
+                </label>
+                <div style="position:relative">
+                  <input type="text" id="registerSearch" class="form-control"
+                         placeholder="Type asset name, serial number or model…" autocomplete="off">
+                  <div id="registerDropdown" style="
+                    position:absolute;z-index:999;width:100%;background:#fff;
+                    border:1.5px solid var(--border);border-radius:10px;margin-top:4px;
+                    box-shadow:0 8px 28px rgba(45,0,138,.15);max-height:220px;overflow-y:auto;display:none;">
+                  </div>
+                </div>
+                <div id="registerCard" style="display:none;margin-top:8px;
+                  border:2px solid var(--primary);border-radius:10px;padding:10px 16px;
+                  background:linear-gradient(135deg,var(--pink),#fff)">
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                    <strong style="color:var(--primary);font-size:13px" id="rc_name"></strong>
+                    <button type="button" onclick="clearRegisterAsset()"
+                      style="background:none;border:none;color:var(--red);cursor:pointer;font-size:12px">
+                      <i class="fas fa-times-circle"></i> Clear
+                    </button>
+                  </div>
+                  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;font-size:12px">
+                    <div><span style="color:#999;font-size:10px;display:block">Model</span><span id="rc_model">—</span></div>
+                    <div><span style="color:#999;font-size:10px;display:block">Serial</span><span id="rc_serial">—</span></div>
+                    <div><span style="color:#999;font-size:10px;display:block">Category</span><span id="rc_cat">—</span></div>
+                    <div><span style="color:#999;font-size:10px;display:block">Funder</span><span id="rc_funder">—</span></div>
+                    <div><span style="color:#999;font-size:10px;display:block">LPO No.</span><span id="rc_lpo">—</span></div>
+                    <div><span style="color:#999;font-size:10px;display:block">Condition</span><span id="rc_condition">—</span></div>
+                  </div>
+                </div>
+                <input type="hidden" id="h_asset_id_reg" value="<?= $edit_row ? htmlspecialchars($edit_row['asset_id'] ?? '') : '' ?>">
+            </div>
+
+            <!-- Digital Asset Type -->
             <div class="form-group">
-                <label>Digital Asset <span class="req">*</span></label>
+                <label>Asset Type <span class="req">*</span></label>
                 <select id="dig_id" class="form-select" onchange="onAssetChange(this.value)">
-                    <option value="">-- Select Asset --</option>
+                    <option value="">-- Select Asset Type --</option>
                     <?php foreach ($assets as $a): ?>
                     <option value="<?= $a['dig_id'] ?>"
                             data-dep="<?= $a['depreciation_percentage'] ?>"
@@ -673,6 +938,37 @@ tbody td{padding:9px 12px;vertical-align:middle;}
                     <i class="fas fa-chart-line"></i>
                     Depreciation: <strong id="depPct">0</strong>% per annum
                 </div>
+            </div>
+
+            <!-- Tag Name -->
+            <div class="form-group">
+                <label>Asset Tag / Label <span class="req">*</span>
+                  <small style="font-weight:400;color:var(--muted)">(barcode / physical tag)</small>
+                </label>
+                <input type="text" id="tag_name" class="form-control"
+                       placeholder="e.g. L12611"
+                       value="<?= $edit_row ? htmlspecialchars($edit_row['tag_name'] ?? '') : '' ?>">
+            </div>
+
+            <!-- Quantity + Total Cost -->
+            <div class="form-group">
+                <label>Quantity <span class="req">*</span></label>
+                <input type="number" id="quantity" class="form-control"
+                       min="1" step="1" value="<?= $edit_row ? (int)($edit_row['quantity'] ?? 1) : 1 ?>"
+                       oninput="calcTotalCost()">
+            </div>
+
+            <div class="form-group">
+                <label>Total Cost (Auto-calculated)</label>
+                <div class="current-value-display" id="totalCostDisplay">
+                  <div>
+                    <span class="cv-label">Total Cost (Qty × Purchase Value)</span>
+                    <span id="totalCostAmount">KES 0.00</span>
+                  </div>
+                  <i class="fas fa-equals" style="margin-left:auto;opacity:.6;font-size:1.3rem"></i>
+                </div>
+                <input type="hidden" id="total_cost_hidden"
+                       value="<?= $edit_row ? htmlspecialchars($edit_row['total_cost'] ?? '0') : '0' ?>">
             </div>
 
             <!-- Funder -->
@@ -745,6 +1041,36 @@ tbody td{padding:9px 12px;vertical-align:middle;}
                        value="<?= $edit_row ? htmlspecialchars($edit_row['lot_number'] ?? '') : '' ?>">
             </div>
 
+            <!-- Name of User -->
+            <div class="form-group">
+                <label>Name of User / Assigned Staff</label>
+                <input type="text" id="name_of_user" class="form-control"
+                       placeholder="e.g. TITUS TSUMA"
+                       value="<?= $edit_row ? htmlspecialchars($edit_row['name_of_user'] ?? '') : '' ?>">
+            </div>
+
+            <!-- Department -->
+            <div class="form-group">
+                <label>Department / Service</label>
+                <input type="text" id="department_name" class="form-control"
+                       placeholder="e.g. CCC, MCH, OPD"
+                       value="<?= $edit_row ? htmlspecialchars($edit_row['department_name'] ?? '') : '' ?>">
+            </div>
+
+            <!-- Date of Verification -->
+            <div class="form-group">
+                <label>Date of Verification</label>
+                <input type="date" id="date_of_verification" class="form-control"
+                       value="<?= $edit_row ? htmlspecialchars($edit_row['date_of_verification'] ?? '') : '' ?>">
+            </div>
+
+            <!-- Date of Disposal -->
+            <div class="form-group">
+                <label>Date of Disposal</label>
+                <input type="date" id="date_of_disposal_inv" class="form-control"
+                       value="<?= $edit_row ? htmlspecialchars($edit_row['date_of_disposal'] ?? '') : '' ?>">
+            </div>
+
         </div>
 
         <div class="divider-label"><i class="fas fa-calendar-alt"></i> Dates &amp; Valuation</div>
@@ -760,10 +1086,12 @@ tbody td{padding:9px 12px;vertical-align:middle;}
 
             <!-- Issue Date -->
             <div class="form-group">
-                <label>Issue Date <span class="req">*</span></label>
+                <label>Issue Date <span class="req">*</span>
+                  <small style="font-weight:400;color:var(--muted)">(defaults to today — editable)</small>
+                </label>
                 <input type="date" id="issue_date" class="form-control"
                        oninput="calcCurrentValue()"
-                       value="<?= $edit_row ? htmlspecialchars($edit_row['issue_date'] ?? '') : '' ?>">
+                       value="<?= $edit_row ? htmlspecialchars($edit_row['issue_date'] ?? '') : date('Y-m-d') ?>">
             </div>
 
             <!-- End Date -->
@@ -848,6 +1176,9 @@ tbody td{padding:9px 12px;vertical-align:middle;}
                     <th>Facility</th>
                     <th>MFL</th>
                     <th>Asset</th>
+                    <th>Tag Name</th>
+                    <th>Qty</th>
+                    <th>Total Cost</th>
                     <th>Funder</th>
                     <th>Purchase Value</th>
                     <th>Current Value</th>
@@ -857,6 +1188,10 @@ tbody td{padding:9px 12px;vertical-align:middle;}
                     <th>EMR Type</th>
                     <th>Service Level</th>
                     <th>SDP</th>
+                    <th>Dept.</th>
+                    <th>User</th>
+                    <th>Lat</th>
+                    <th>Lng</th>
                     <th>Lot #</th>
                     <th>Status</th>
                     <th>Actions</th>
@@ -871,6 +1206,9 @@ tbody td{padding:9px 12px;vertical-align:middle;}
                     <br><small style="color:var(--muted)"><?= htmlspecialchars($inv['county_name'] ?? '') ?></small></td>
                 <td><?= htmlspecialchars($inv['mflcode'] ?? '—') ?></td>
                 <td><?= htmlspecialchars($inv['asset_name']) ?></td>
+                <td><?= htmlspecialchars($inv['tag_name'] ?? '—') ?></td>
+                <td><?= htmlspecialchars($inv['quantity'] ?? 1) ?></td>
+                <td><strong>KES <?= number_format((float)($inv['total_cost'] ?? 0), 2) ?></strong></td>
                 <td><?= htmlspecialchars($inv['dig_funder_name'] ?? '—') ?></td>
                 <td>KES <?= number_format((float)$inv['purchase_value'], 2) ?></td>
                 <td><strong style="color:var(--primary)">KES <?= number_format((float)$inv['current_value'], 2) ?></strong></td>
@@ -884,6 +1222,10 @@ tbody td{padding:9px 12px;vertical-align:middle;}
                     </span>
                 </td>
                 <td><?= htmlspecialchars($inv['sdp_name'] ?? '—') ?></td>
+                <td><?= htmlspecialchars($inv['department_name'] ?? '—') ?></td>
+                <td><?= htmlspecialchars($inv['name_of_user'] ?? '—') ?></td>
+                <td><small><?= $inv['latitude'] ? number_format((float)$inv['latitude'],5) : '—' ?></small></td>
+                <td><small><?= $inv['longitude'] ? number_format((float)$inv['longitude'],5) : '—' ?></small></td>
                 <td><?= htmlspecialchars($inv['lot_number'] ?? '—') ?></td>
                 <td>
                     <span class="badge <?= $inv['invest_status'] === 'Active' ? 'badge-active' : 'badge-expired' ?>">
@@ -968,6 +1310,51 @@ tbody td{padding:9px 12px;vertical-align:middle;}
 </div>
 
 </div><!-- /pane_csv -->
+
+<!-- ══════════════════════════════════════════════════════════════════
+     TAB 4 — EXCEL IMPORT
+═══════════════════════════════════════════════════════════════════ -->
+<div id="pane_excel" style="display:none">
+<div class="card">
+    <div class="card-head">
+        <h3><i class="fas fa-file-excel"></i> Import Records via Excel (.xlsx / .xls)</h3>
+    </div>
+    <div class="card-body">
+        <div class="alert alert-info">
+            <i class="fas fa-info-circle" style="font-size:1.2rem;flex-shrink:0"></i>
+            <div>
+                <strong>Excel / CSV Import — Issuance Records</strong><br>
+                Upload your <em>assets_master_register.xlsx</em> or any CSV/Excel with these columns:<br>
+                <code style="background:#e8deff;padding:2px 6px;border-radius:4px;font-size:12px">
+                facility_name, dit_asset_name, purchase_value, issue_date, service_level
+                </code> — required<br>
+                <code style="background:#f0f8ff;padding:2px 6px;border-radius:4px;font-size:12px">
+                mflcode, tag_name, quantity, dig_funder_name, county_name, subcounty_name,
+                name_of_user, department_name, lpo_number, end_date, no_end_date,
+                sdp_name, emr_type_name, lot_number, date_of_verification
+                </code> — optional<br>
+                <strong>Dates:</strong> YYYY-MM-DD &nbsp;|&nbsp;
+                <strong>Tip:</strong> The existing <em>assets_master_register.xlsx</em> in the digitization folder is compatible.
+            </div>
+        </div>
+        <div class="csv-drop" id="xlsDrop" onclick="document.getElementById('xlsFile').click()">
+            <i class="fas fa-file-excel" style="color:#107c41"></i>
+            <p><strong>Click to browse</strong> or drag &amp; drop your Excel or CSV file</p>
+            <p id="xlsFileName" style="margin-top:8px;color:var(--primary);font-weight:600"></p>
+        </div>
+        <input type="file" id="xlsFile" accept=".xlsx,.xls,.csv" style="display:none" onchange="onXlsFileChange(this)">
+        <div class="btn-group">
+            <button class="btn btn-primary" id="btnXlsImport" disabled onclick="importXls()">
+                <i class="fas fa-file-import"></i> Import Records
+            </button>
+            <a href="asset_master_register.php?tab=import" class="btn btn-outline">
+                <i class="fas fa-clipboard-list"></i> Import to Asset Register Instead
+            </a>
+        </div>
+        <div id="xlsImportResult" style="margin-top:18px"></div>
+    </div>
+</div>
+</div><!-- /pane_excel -->
 
 </div><!-- /wrap -->
 
@@ -1063,7 +1450,7 @@ function showAlert(msg, type='info') {
 
 // ── Tab switching ───────────────────────────────────────────────────────
 function showTab(name) {
-    ['form','list','csv'].forEach(t => {
+    ['form','list','csv','excel'].forEach(t => {
         document.getElementById('pane_'+t).style.display = t===name ? 'block' : 'none';
         document.getElementById('tab_'+t).classList.toggle('active', t===name);
     });
@@ -1119,6 +1506,8 @@ function pickFacility(r) {
     document.getElementById('h_mflcode').value        = r.mflcode||'';
     document.getElementById('h_county').value         = r.county_name||'';
     document.getElementById('h_subcounty').value      = r.subcounty_name||'';
+    document.getElementById('h_latitude').value        = r.latitude||'';
+    document.getElementById('h_longitude').value       = r.longitude||'';
 
     document.getElementById('fc_name').textContent      = r.facility_name;
     document.getElementById('fc_mfl').textContent       = r.mflcode||'—';
@@ -1129,6 +1518,8 @@ function pickFacility(r) {
     document.getElementById('fc_sdp_fac').textContent   = r.sdp||'—';
     document.getElementById('fc_agency').textContent    = r.agency||'—';
     document.getElementById('fc_emr').textContent       = r.emr||'—';
+    document.getElementById('fc_lat').textContent       = r.latitude||'—';
+    document.getElementById('fc_lng').textContent       = r.longitude||'—';
     document.getElementById('facilityCard').style.display = 'block';
 }
 
@@ -1140,7 +1531,98 @@ function clearFacility() {
     document.getElementById('h_mflcode').value        = '';
     document.getElementById('h_county').value         = '';
     document.getElementById('h_subcounty').value      = '';
+    document.getElementById('h_latitude').value        = '';
+    document.getElementById('h_longitude').value       = '';
     document.getElementById('facilityCard').style.display = 'none';
+}
+
+// ── Total cost calculation ─────────────────────────────────────────────
+function calcTotalCost() {
+    const pv  = parseFloat(document.getElementById('purchase_value').value) || 0;
+    const qty = parseInt(document.getElementById('quantity').value)         || 1;
+    const tc  = Math.round(pv * qty * 100) / 100;
+    document.getElementById('totalCostAmount').textContent =
+        'KES ' + tc.toLocaleString('en-KE', {minimumFractionDigits:2});
+    document.getElementById('total_cost_hidden').value = tc;
+}
+
+// ── Asset register search ───────────────────────────────────────────────
+function debounceReg(fn, ms) { let t; return (...a) => { clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; }
+
+const regInput    = document.getElementById('registerSearch');
+const regDropdown = document.getElementById('registerDropdown');
+
+if (regInput) {
+    regInput.addEventListener('input', debounceReg(async function() {
+        const q = regInput.value.trim();
+        if (q.length < 2) { regDropdown.style.display='none'; return; }
+        try {
+            const rows = await fetch(`${THIS_FILE}?ajax=search_register&q=${encodeURIComponent(q)}`).then(r=>r.json());
+            if (!rows.length) {
+                regDropdown.innerHTML = '<div style="padding:12px;color:#999;font-size:13px;text-align:center"><i class="fas fa-search"></i> No assets found in register</div>';
+            } else {
+                regDropdown.innerHTML = rows.map(r =>
+                    `<div style="padding:10px 14px;cursor:pointer;border-bottom:1px solid #f0f0f0;transition:.15s"
+                          onmouseover="this.style.background='#faf2ff'" onmouseout="this.style.background=''"
+                          onclick='pickRegisterAsset(${JSON.stringify(r).replace(/'/g,"&#39;")})'>
+                        <div style="font-weight:700;color:var(--primary);font-size:13px">${r.asset_name}
+                          <span style="font-size:10px;background:var(--pink);color:var(--primary);border-radius:4px;padding:1px 6px;margin-left:4px;font-weight:600">${r.asset_category||''}</span>
+                        </div>
+                        <div style="font-size:11px;color:#777;margin-top:2px">
+                          Model: ${r.model||'—'} &nbsp;|&nbsp; Serial: ${r.serial_number||'—'} &nbsp;|&nbsp;
+                          KES ${parseFloat(r.purchase_value).toLocaleString('en-KE',{minimumFractionDigits:2})}
+                        </div>
+                    </div>`
+                ).join('');
+            }
+            regDropdown.style.display = 'block';
+        } catch(e) { regDropdown.style.display='none'; }
+    }, 350));
+
+    document.addEventListener('click', e => {
+        if (!regInput.closest('div').contains(e.target)) regDropdown.style.display = 'none';
+    });
+}
+
+function pickRegisterAsset(r) {
+    regDropdown.style.display = 'none';
+    regInput.value = r.asset_name + (r.serial_number ? ' — ' + r.serial_number : '');
+    document.getElementById('h_asset_id_reg').value = r.asset_id;
+
+    // Fill asset type select
+    const sel = document.getElementById('dig_id');
+    for (let opt of sel.options) {
+        if (opt.dataset.name === r.asset_name) { sel.value = opt.value; break; }
+    }
+    onAssetChange(sel.value);
+
+    // Fill purchase value if empty
+    if (!document.getElementById('purchase_value').value) {
+        document.getElementById('purchase_value').value = r.purchase_value;
+    }
+    // Fill funder if empty
+    if (!document.getElementById('dig_funder_id').value && r.dig_funder_name) {
+        document.getElementById('dig_funder_id').value = r.dig_funder_name;
+    }
+
+    // Show register card
+    document.getElementById('rc_name').textContent      = r.asset_name;
+    document.getElementById('rc_model').textContent     = r.model || '—';
+    document.getElementById('rc_serial').textContent    = r.serial_number || '—';
+    document.getElementById('rc_cat').textContent       = r.asset_category || '—';
+    document.getElementById('rc_funder').textContent    = r.dig_funder_name || '—';
+    document.getElementById('rc_lpo').textContent       = r.lpo_number || '—';
+    document.getElementById('rc_condition').textContent = r.current_condition || '—';
+    document.getElementById('registerCard').style.display = 'block';
+
+    calcTotalCost();
+    calcCurrentValue();
+}
+
+function clearRegisterAsset() {
+    regInput.value = '';
+    document.getElementById('h_asset_id_reg').value = '';
+    document.getElementById('registerCard').style.display = 'none';
 }
 
 // ── Asset change — show depreciation ───────────────────────────────────
@@ -1196,6 +1678,7 @@ function calcCurrentValue() {
 
     document.getElementById('cvAmount').textContent = 'KES ' + cv.toLocaleString('en-KE', {minimumFractionDigits:2});
     document.getElementById('current_value_hidden').value = cv;
+    calcTotalCost();
 }
 
 // ── Save record ─────────────────────────────────────────────────────────
@@ -1242,6 +1725,16 @@ async function saveRecord() {
     fd.append('emr_type_name',          document.getElementById('emr_type_id').value);
     fd.append('service_level',          slevel);
     fd.append('lot_number',             document.getElementById('lot_number').value);
+    fd.append('tag_name',               document.getElementById('tag_name').value || '');
+    fd.append('quantity',               document.getElementById('quantity').value || 1);
+    fd.append('total_cost',             document.getElementById('total_cost_hidden').value || 0);
+    fd.append('latitude',               document.getElementById('h_latitude').value || '');
+    fd.append('longitude',              document.getElementById('h_longitude').value || '');
+    fd.append('asset_id_reg',           document.getElementById('h_asset_id_reg').value || '');
+    fd.append('name_of_user',           document.getElementById('name_of_user').value || '');
+    fd.append('department_name',        document.getElementById('department_name').value || '');
+    fd.append('date_of_verification',   document.getElementById('date_of_verification').value || '');
+    fd.append('date_of_disposal',       document.getElementById('date_of_disposal_inv').value || '');
 
     try {
         const data = await fetch(THIS_FILE, {method:'POST', body:fd}).then(r=>r.json());
@@ -1272,6 +1765,17 @@ function resetForm() {
     document.getElementById('issue_date').value      = '';
     document.getElementById('end_date').value        = '';
     document.getElementById('lot_number').value      = '';
+    document.getElementById('tag_name').value         = '';
+    document.getElementById('quantity').value         = 1;
+    document.getElementById('name_of_user').value     = '';
+    document.getElementById('department_name').value  = '';
+    document.getElementById('date_of_verification').value = '';
+    document.getElementById('date_of_disposal_inv').value = '';
+    clearRegisterAsset();
+    document.getElementById('totalCostAmount').textContent = 'KES 0.00';
+    document.getElementById('total_cost_hidden').value = 0;
+    document.getElementById('h_latitude').value  = '';
+    document.getElementById('h_longitude').value = '';
     document.getElementById('no_end_date').checked   = false;
     document.getElementById('end_date').disabled     = false;
     document.getElementById('h_invest_id').value     = '';
@@ -1331,6 +1835,66 @@ function filterTable() {
         const matchL = !level  || rLevel === level;
         row.style.display = (matchQ && matchS && matchL) ? '' : 'none';
     });
+}
+
+// ── Excel / xlsx import ────────────────────────────────────────────────
+let xlsFile = null;
+
+const xlsDrop = document.getElementById('xlsDrop');
+if (xlsDrop) {
+    xlsDrop.addEventListener('dragover', e => { e.preventDefault(); xlsDrop.classList.add('drag-over'); });
+    xlsDrop.addEventListener('dragleave', () => xlsDrop.classList.remove('drag-over'));
+    xlsDrop.addEventListener('drop', e => {
+        e.preventDefault();
+        xlsDrop.classList.remove('drag-over');
+        const f = e.dataTransfer.files[0];
+        if (f) {
+            xlsFile = f;
+            document.getElementById('xlsFileName').textContent = '📎 ' + f.name;
+            document.getElementById('btnXlsImport').disabled = false;
+        }
+    });
+}
+function onXlsFileChange(input) {
+    if (input.files.length) {
+        xlsFile = input.files[0];
+        document.getElementById('xlsFileName').textContent = '📎 ' + xlsFile.name;
+        document.getElementById('btnXlsImport').disabled = false;
+    }
+}
+async function importXls() {
+    if (!xlsFile) { showToast('Please select a file.', 'error'); return; }
+    const btn = document.getElementById('btnXlsImport');
+    const orig = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Importing…';
+    btn.disabled = true;
+    const fd = new FormData();
+    fd.append('ajax_excel_import', '1');
+    fd.append('xls_file', xlsFile);
+    try {
+        const data = await fetch(THIS_FILE, {method:'POST', body:fd}).then(r=>r.json());
+        const res = document.getElementById('xlsImportResult');
+        if (data.success) {
+            let html = `<div class="alert alert-success">
+                <i class="fas fa-check-circle" style="font-size:1.3rem;flex-shrink:0"></i>
+                <div><strong>Import Complete!</strong><br>
+                ✅ ${data.imported} records imported &nbsp;|&nbsp;
+                ⚠️ ${data.skipped} rows skipped</div></div>`;
+            if (data.errors && data.errors.length) {
+                html += `<div class="alert alert-error"><i class="fas fa-exclamation-triangle"></i>
+                    <div><strong>Notes:</strong><br>${data.errors.map(e=>'• '+e).join('<br>')}</div></div>`;
+            }
+            res.innerHTML = html;
+            if (data.imported > 0) setTimeout(() => window.location.reload(), 2000);
+        } else {
+            res.innerHTML = `<div class="alert alert-error">
+                <i class="fas fa-times-circle"></i> ${data.error}</div>`;
+        }
+    } catch(e) {
+        document.getElementById('xlsImportResult').innerHTML =
+            `<div class="alert alert-error"><i class="fas fa-times-circle"></i> Network error.</div>`;
+    }
+    btn.innerHTML = orig; btn.disabled = false;
 }
 
 // ── CSV import ──────────────────────────────────────────────────────────
@@ -1407,12 +1971,14 @@ function downloadTemplate(e) {
     const header = [
         'facility_name','mflcode','county_name','subcounty_name',
         'dit_asset_name','purchase_value','issue_date','end_date','no_end_date',
-        'dig_funder_name','sdp_name','emr_type_name','service_level','lot_number'
+        'tag_name','quantity','dig_funder_name','sdp_name','emr_type_name',
+        'service_level','lot_number','name_of_user','department_name','date_of_verification'
     ].join(',');
     const sample = [
         'Nairobi Central Hospital','10001','Nairobi','Starehe',
         'Desktop Computer','250000','2024-01-15','','1',
-        'Ministry of Health','Outpatient','OpenMRS','Facility-wide','LOT-001'
+        'PC-TAG-001','2','Ministry of Health','Outpatient','OpenMRS',
+        'Facility-wide','LOT-001','JOHN DOE','CCC','2024-01-20'
     ].join(',');
     const blob = new Blob([header + '\n' + sample], {type:'text/csv'});
     const url  = URL.createObjectURL(blob);
