@@ -37,11 +37,13 @@ $section_labels = [
     'laboratory'             => 'Laboratory',
     'inventory'              => 'Inventory Mgmt',
     'training'               => 'In-Service Training',
+    'hr'                     => 'HR Management',   // legacy key alias
     'hr_management'          => 'HR Management',
     'data_management'        => 'Data Management',
     'patient_monitoring'     => 'Patient Monitoring',
     'institutional_ownership'=> 'Institutional Ownership',
 ];
+// Normalise legacy section key 'hr' → 'hr_management' so they don't show as two rows
 
 $where_parts = ["1=1"];
 if ($county_id) $where_parts[] = "tss.county_id = $county_id";
@@ -81,8 +83,17 @@ if ($result) while ($row = mysqli_fetch_assoc($result)) {
     $cn = $row['county_name'];
     $p  = $row['assessment_period'];
     $sk = $row['section_key'];
+    // Merge legacy 'hr' key into 'hr_management'
+    if ($sk === 'hr') $sk = 'hr_management';
     if (!isset($raw_data[$cn])) $raw_data[$cn] = ['county_id'=>$row['county_id'],'periods'=>[]];
     if (!isset($raw_data[$cn]['periods'][$p])) $raw_data[$cn]['periods'][$p] = [];
+    // If both 'hr' and 'hr_management' exist for same period, merge (keep highest scores)
+    if (isset($raw_data[$cn]['periods'][$p][$sk])) {
+        $existing = $raw_data[$cn]['periods'][$p][$sk];
+        $row['sub_count'] = max($row['sub_count'], $existing['sub_count']);
+        $row['cdoh_pct']  = max($row['cdoh_pct'],  $existing['cdoh_pct']);
+        $row['ip_pct']    = max($row['ip_pct'],     $existing['ip_pct']);
+    }
     $raw_data[$cn]['periods'][$p][$sk] = $row;
 }
 
@@ -218,10 +229,7 @@ body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:#f0f2f7;
 <div class="container">
 <div class="page-header">
     <h1><i class="fas fa-chart-bar"></i> Transition Assessment Dashboard</h1>
-
     <div class="hdr-links">
-        <a href="transition_ai_advisor.php?county=<?= $county_id ?>&period=<?= urlencode($period) ?>">
-        <i class="fas fa-robot"></i> AI Advisor</a>
         <a href="transition_comparison_dashboard.php"><i class="fas fa-code-branch"></i> Compare</a>
         <a href="transition_index.php"><i class="fas fa-plus"></i> New Assessment</a>
         <a href="transition_index.php"><i class="fas fa-home"></i> Home</a>
@@ -283,7 +291,7 @@ body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:#f0f2f7;
     <span id="overallScores" style="font-size:14px;color:#666"></span>
 </div>
 
-<!--<div class="section-title"><i class="fas fa-chart-bar"></i> CDOH Score Distribution per Section</div>
+<!-- <div class="section-title"><i class="fas fa-chart-bar"></i> CDOH Score Distribution per Section</div>
 <div class="card" style="margin-bottom:22px">
     <div class="card-head">
         <h3><i class="fas fa-layer-group"></i> Score Level Distribution by Section (% of sub-indicators)</h3>
@@ -296,7 +304,7 @@ body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:#f0f2f7;
         </div>
     </div>
     <div class="card-body"><div style="height:380px"><canvas id="stackedChart"></canvas></div></div>
-</div>-->
+</div> -->
 
 <div class="section-title"><i class="fas fa-chart-bar"></i> CDOH vs IP — Cluster Bars per Section</div>
 <div class="card" style="margin-bottom:22px">

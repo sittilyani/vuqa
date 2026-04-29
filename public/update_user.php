@@ -107,6 +107,19 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['submit'])) {
         $userrole = $_POST['userrole'];
     }
 
+    // Assigned counties (Admin only): write the CSV `assigned_county` column.
+    // Accepts either name="assigned_county[]" (matches user_registration.php)
+    // or "assigned_counties[]" (legacy).
+    $assigned_county_csv = $user['assigned_county'] ?? '';
+    $update_assigned = false;
+    if ($_SESSION['userrole'] === 'Admin' && isset($_POST['assigned_counties_present'])) {
+        $ac_in = $_POST['assigned_county'] ?? $_POST['assigned_counties'] ?? [];
+        if (!is_array($ac_in)) $ac_in = [];
+        $ac_in = array_values(array_unique(array_filter(array_map('intval', $ac_in))));
+        $assigned_county_csv = implode(',', $ac_in);
+        $update_assigned = true;
+    }
+
     // Validate required fields
     if (empty($username) || empty($first_name) || empty($last_name) || empty($email) || empty($sex) || empty($mobile)) {
         $error = "Required fields are missing!";
@@ -150,6 +163,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['submit'])) {
                     $params[] = $userrole;
                 }
 
+                if ($update_assigned) {
+                    $sql .= ", assigned_counties = ?";
+                    $types .= "s";
+                    $params[] = $assigned_counties_json;
+                }
+
                 $sql .= " WHERE user_id = ?";
                 $types .= "i";
                 $params[] = $user_id;
@@ -186,6 +205,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['submit'])) {
                     $params[] = $userrole;
                 }
 
+                if ($update_assigned) {
+                    $sql .= ", assigned_counties = ?";
+                    $types .= "s";
+                    $params[] = $assigned_counties_json;
+                }
+
                 $sql .= " WHERE user_id = ?";
                 $types .= "i";
                 $params[] = $user_id;
@@ -218,6 +243,16 @@ $roles = [];
 while ($row = $roles_result->fetch_assoc()) {
     $roles[] = $row['role'];
 }
+
+// Get counties for the assigned-counties widget and decode current assignments
+$counties_result = $conn->query("SELECT county_id, county_name FROM counties ORDER BY county_name");
+$all_counties = [];
+if ($counties_result) {
+    while ($row = $counties_result->fetch_assoc()) $all_counties[] = $row;
+}
+$current_assigned = json_decode($user['assigned_counties'] ?? '', true);
+if (!is_array($current_assigned)) $current_assigned = [];
+$current_assigned = array_map('intval', $current_assigned);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -565,7 +600,7 @@ while ($row = $roles_result->fetch_assoc()) {
                             <div style="background: #e7f3ff; padding: 10px; border-radius: 8px; margin-bottom: 10px;">
                                 <i class="fas fa-shield-alt"></i> Current Role: <strong><?php echo htmlspecialchars($user['userrole']); ?></strong>
                             </div>
-                            <select class="form-control" name="userrole">
+                            <select class="form-control" name="userrole" id="userrole_select">
                                 <option value="">Select New Role (Leave empty to keep current)</option>
                                 <?php foreach ($roles as $role): ?>
                                     <option value="<?php echo htmlspecialchars($role); ?>">
@@ -573,6 +608,46 @@ while ($row = $roles_result->fetch_assoc()) {
                                     </option>
                                 <?php endforeach; ?>
                             </select>
+                        </div>
+
+                        <!-- Assigned Counties (Admin only) -->
+                        <div class="form-group full-width" id="assigned_counties_wrap">
+                            <label>Assigned Counties</label>
+                            <div style="font-size:12px;color:#666;margin-bottom:8px;">
+                                Tick the counties this user is allowed to view and assess.
+                                Admin / Super Admin roles automatically see every county.
+                            </div>
+                            <input type="hidden" name="assigned_counties_present" value="1">
+                            <div style="display:flex;gap:8px;margin-bottom:8px;">
+                                <input type="text" id="county_filter" class="form-control"
+                                       placeholder="Filter counties..." style="flex:1;padding:8px 12px;">
+                                <button type="button" class="btn btn-secondary" id="btn_select_all_counties"
+                                        style="padding:8px 14px;font-size:13px;">Select All</button>
+                                <button type="button" class="btn btn-secondary" id="btn_clear_counties"
+                                        style="padding:8px 14px;font-size:13px;">Clear</button>
+                            </div>
+                            <div id="counties_grid"
+                                 style="border:2px solid #e0e0e0;border-radius:10px;padding:12px;
+                                        max-height:240px;overflow:auto;display:grid;
+                                        grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:6px;background:#fafbfd;">
+                                <?php foreach ($all_counties as $c):
+                                    $cid = (int)$c['county_id'];
+                                    $checked = in_array($cid, $current_assigned, true) ? 'checked' : '';
+                                ?>
+                                <label class="county-pick"
+                                       data-name="<?php echo strtolower(htmlspecialchars($c['county_name'])); ?>"
+                                       style="display:flex;align-items:center;gap:6px;padding:6px 8px;
+                                              border-radius:6px;background:<?php echo $checked?'#e8edf8':'#fff'; ?>;
+                                              border:1px solid #e8eaf6;cursor:pointer;font-size:13px;">
+                                    <input type="checkbox" name="assigned_counties[]"
+                                           value="<?php echo $cid; ?>" <?php echo $checked; ?>>
+                                    <span><?php echo htmlspecialchars($c['county_name']); ?></span>
+                                </label>
+                                <?php endforeach; ?>
+                            </div>
+                            <div id="ac_count" style="font-size:12px;color:#0d1a63;margin-top:6px;font-weight:600;">
+                                <?php echo count($current_assigned); ?> selected
+                            </div>
                         </div>
                         <?php endif; ?>
 
@@ -736,6 +811,57 @@ while ($row = $roles_result->fetch_assoc()) {
             }
         }
     });
+
+    // ----- Assigned counties picker -----
+    (function () {
+        const grid     = document.getElementById('counties_grid');
+        const filter   = document.getElementById('county_filter');
+        const btnAll   = document.getElementById('btn_select_all_counties');
+        const btnNone  = document.getElementById('btn_clear_counties');
+        const counter  = document.getElementById('ac_count');
+        const wrap     = document.getElementById('assigned_counties_wrap');
+        const role     = document.getElementById('userrole_select');
+        if (!grid) return;
+
+        function pills() { return grid.querySelectorAll('label.county-pick'); }
+        function checked() { return grid.querySelectorAll('input[type="checkbox"]:checked'); }
+        function refreshCount() { counter.textContent = checked().length + ' selected'; }
+        grid.addEventListener('change', function (e) {
+            const pill = e.target.closest('label.county-pick');
+            if (pill) pill.style.background = e.target.checked ? '#e8edf8' : '#fff';
+            refreshCount();
+        });
+        filter.addEventListener('input', function () {
+            const q = filter.value.trim().toLowerCase();
+            pills().forEach(p => {
+                p.style.display = (!q || p.dataset.name.indexOf(q) !== -1) ? '' : 'none';
+            });
+        });
+        btnAll.addEventListener('click', function () {
+            pills().forEach(p => {
+                if (p.style.display === 'none') return;
+                const cb = p.querySelector('input[type="checkbox"]');
+                if (cb && !cb.checked) { cb.checked = true; cb.dispatchEvent(new Event('change', {bubbles:true})); }
+            });
+        });
+        btnNone.addEventListener('click', function () {
+            pills().forEach(p => {
+                const cb = p.querySelector('input[type="checkbox"]');
+                if (cb && cb.checked) { cb.checked = false; cb.dispatchEvent(new Event('change', {bubbles:true})); }
+            });
+        });
+        // For update_user we hide the picker only if the user picks Admin/Super Admin
+        // in the dropdown; we leave it visible by default so admins can change a user's role.
+        function syncRoleVisibility() {
+            if (!role || !wrap) return;
+            const v = role.value || '';
+            const isAdmin = (v === 'Admin' || v === 'Super Admin');
+            wrap.style.display = isAdmin ? 'none' : '';
+        }
+        if (role) role.addEventListener('change', syncRoleVisibility);
+        // Don't call sync on load — we want the picker visible to allow editing.
+        refreshCount();
+    })();
     </script>
 </body>
 </html>

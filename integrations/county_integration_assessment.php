@@ -4,8 +4,23 @@
 session_start();
 include('../includes/config.php');
 include('../includes/session_check.php');
+include('../includes/county_access.php');
 
 if (!isset($_SESSION['user_id'])) { header('Location: ../login.php'); exit(); }
+
+// Access guard: non-admins can only operate on counties they are assigned to.
+$_guard_cid = (int)($_GET['county_id'] ?? $_GET['county'] ?? $_POST['county_id'] ?? 0);
+if ($_guard_cid && !cf_user_can_access_county($_guard_cid)) {
+    if (isset($_POST['ajax_save_section']) || isset($_POST['ajax_submit'])
+        || (isset($_GET['ajax']) && $_GET['ajax'] === 'check_assessment')) {
+        header('Content-Type: application/json');
+        echo json_encode(['success'=>false,'error'=>'You are not assigned to this county.']);
+        exit();
+    }
+    $_SESSION['error_message'] = 'You are not assigned to this county.';
+    header('Location: county_integration_assessment_list.php');
+    exit();
+}
 
 $collected_by = $_SESSION['full_name'] ?? '';
 $uid = (int)$_SESSION['user_id'];
@@ -300,8 +315,9 @@ if ($edit_id) {
     }
 }
 
-// Get counties, agencies, implementing partners
-$counties_r = mysqli_query($conn, "SELECT county_id, county_name, county_code FROM counties ORDER BY county_name");
+// Get counties, agencies, implementing partners â€” counties are filtered by assignment
+$_cf_part = cf_county_filter_sql();
+$counties_r = mysqli_query($conn, "SELECT county_id, county_name, county_code FROM counties WHERE 1=1 $_cf_part ORDER BY county_name");
 $counties = [];
 if ($counties_r) while ($r = mysqli_fetch_assoc($counties_r)) $counties[] = $r;
 
@@ -1336,10 +1352,10 @@ function updateProgress() {
     if (btn && txt) {
         if (n >= total) {
             btn.disabled = false;
-            txt.innerHTML = '<i class="fas fa-check-circle" style="color:var(--green)"></i> All sections saved — ready to submit!';
+            txt.innerHTML = '<i class="fas fa-check-circle" style="color:var(--green)"></i> All sections saved ï¿½ ready to submit!';
         } else {
             btn.disabled = true;
-            txt.innerHTML = '<i class="fas fa-info-circle"></i> ' + n + ' of ' + total + ' sections saved — complete all to enable submission';
+            txt.innerHTML = '<i class="fas fa-info-circle"></i> ' + n + ' of ' + total + ' sections saved ï¿½ complete all to enable submission';
         }
     }
 }
@@ -1486,7 +1502,7 @@ async function saveSection(sectionKey) {
             showToast(data.error || 'Save failed', 'error');
         }
     } catch(e) {
-        showToast('Error saving section — please try again', 'error');
+        showToast('Error saving section ï¿½ please try again', 'error');
         console.error(e);
     }
 
@@ -1512,7 +1528,7 @@ async function finalSubmit() {
             showToast(data.error || 'Submission failed', 'error');
         }
     } catch(e) {
-        showToast('Network error — please try again', 'error');
+        showToast('Network error ï¿½ please try again', 'error');
     }
 }
 

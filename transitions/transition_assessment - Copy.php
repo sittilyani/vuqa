@@ -1,11 +1,26 @@
 <?php
-error_reporting(E_ALL);
-ini_set('display_errors', 1);
-
 // transitions/transition_assessment.php
+// Start output buffering to prevent premature output
+ob_start();
+
 session_start();
 include('../includes/config.php');
 include('../includes/session_check.php');
+
+// Set JSON header for AJAX responses early
+$is_ajax = isset($_SERVER['HTTP_X_REQUESTED_WITH']) &&
+           strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest';
+
+// Check if this is an AJAX request
+if ($is_ajax || isset($_POST['ajax_save_section']) || isset($_POST['ajax_submit']) || isset($_GET['ajax'])) {
+    header('Content-Type: application/json');
+
+    // Check if user is logged in
+    if (!isset($_SESSION['user_id'])) {
+        echo json_encode(['success' => false, 'error' => 'Session expired. Please login again.']);
+        exit();
+    }
+}
 
 if (!isset($_SESSION['user_id'])) {
     header('Location: ../login.php');
@@ -25,12 +40,6 @@ $sections = isset($_GET['sections']) ? explode(',', $_GET['sections']) : [];
 // Determine mode
 $edit_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 $view_only = isset($_GET['view']) && !isset($_GET['edit']);
-
-// Redirect if missing required params and not editing/viewing
-if (!$edit_id && (!$county_id || !$period || empty($sections))) {
-    header('Location: transition_index.php');
-    exit();
-}
 
 // -- AJAX: check existing assessment -----------------------------------------
 if (isset($_GET['ajax']) && $_GET['ajax'] === 'check_assessment') {
@@ -60,15 +69,12 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'check_assessment') {
             ];
         }
     }
-    header('Content-Type: application/json');
     echo json_encode($result);
     exit();
 }
 
 // -- AJAX: save a single section ---------------------------------------------
 if (isset($_POST['ajax_save_section'])) {
-    header('Content-Type: application/json');
-
     $section_key     = mysqli_real_escape_string($conn, $_POST['section_key'] ?? '');
     $cid             = (int)($_POST['county_id'] ?? 0);
     $period_safe     = mysqli_real_escape_string($conn, $_POST['assessment_period'] ?? '');
@@ -90,11 +96,34 @@ if (isset($_POST['ajax_save_section'])) {
         if ($existing) {
             $aid = (int)$existing['assessment_id'];
         } else {
+            // Persist the sections being assessed so reloads via ?id=N render correctly
+            $sel_sections_post = $_POST['sections_selected'] ?? '';
+            $sel_sections_safe = mysqli_real_escape_string($conn, $sel_sections_post);
+            $sel_sql = $sel_sections_safe !== '' ? "'$sel_sections_safe'" : "'[]'";
+
             mysqli_query($conn,
                 "INSERT INTO transition_assessments
-                 (county_id, county_name, assessment_period, assessment_date, assessed_by, assessment_status, readiness_level)
-                 VALUES ($cid, '$county_name', '$period_safe', '$assessment_date', '$assessed_by', 'Draft', 'Not Rated')");
+                 (county_id, assessment_period, assessment_date, assessed_by,
+                  assessment_status, readiness_level, sections_selected)
+                 VALUES ($cid, '$period_safe', '$assessment_date', '$assessed_by',
+                         'Draft', 'Not Rated', $sel_sql)");
             $aid = (int)mysqli_insert_id($conn);
+        }
+    }
+
+    // If the row exists but sections_selected is empty, top it up
+    if ($aid) {
+        $row_chk = mysqli_fetch_assoc(mysqli_query($conn,
+            "SELECT sections_selected FROM transition_assessments WHERE assessment_id=$aid"));
+        $sel_curr = trim((string)($row_chk['sections_selected'] ?? ''));
+        if ($sel_curr === '' || $sel_curr === '[]' || $sel_curr === 'null') {
+            $sel_post = $_POST['sections_selected'] ?? '';
+            if ($sel_post !== '') {
+                $sel_post_safe = mysqli_real_escape_string($conn, $sel_post);
+                mysqli_query($conn,
+                    "UPDATE transition_assessments SET sections_selected='$sel_post_safe'
+                     WHERE assessment_id=$aid");
+            }
         }
     }
 
@@ -135,6 +164,58 @@ if (isset($_POST['ajax_save_section'])) {
             $saved++;
             if ($cdoh !== 'NULL') { $sum_cdoh += $cdoh; $cnt_cdoh++; }
             if ($ip   !== 'NULL') { $sum_ip   += $ip;   $cnt_ip++;   }
+        }
+    }
+
+    // Also process direct radio inputs (not nested in scores array)
+    foreach ($_POST as $key => $value) {
+        if (strpos($key, 'scores[') === 0 && !is_array($value)) {
+            // Parse composite key from name like scores[composite_key][cdoh]
+            if (preg_match('/scores\[([^\]]+)\]\[([^\]]+)\]/', $key, $matches)) {
+                $composite_key = $matches[1];
+                $type = $matches[2]; // 'cdoh' or 'ip'
+
+                $ck_safe  = mysqli_real_escape_string($conn, $composite_key);
+                $parts    = explode('_', $composite_key);
+                $sub_code = end($parts);
+                $sub_safe = mysqli_real_escape_string($conn, $sub_code);
+                $ind_code = preg_replace('/\.\d+$/', '', $sub_code);
+                $ind_safe = mysqli_real_escape_string($conn, $ind_code);
+
+                $score_val = $value !== '' ? (int)$value : 'NULL';
+
+                // Check if record exists
+                $existing = mysqli_fetch_assoc(mysqli_query($conn,
+                    "SELECT id, cdoh_score, ip_score FROM transition_raw_scores
+                     WHERE assessment_id=$aid AND composite_key='$ck_safe'"));
+
+                if ($existing) {
+                    if ($type == 'cdoh') {
+                        mysqli_query($conn,
+                            "UPDATE transition_raw_scores SET cdoh_score=$score_val, scored_at=NOW()
+                             WHERE assessment_id=$aid AND composite_key='$ck_safe'");
+                        if ($score_val !== 'NULL') { $sum_cdoh += $score_val; $cnt_cdoh++; }
+                    } else if ($type == 'ip') {
+                        mysqli_query($conn,
+                            "UPDATE transition_raw_scores SET ip_score=$score_val, scored_at=NOW()
+                             WHERE assessment_id=$aid AND composite_key='$ck_safe'");
+                        if ($score_val !== 'NULL') { $sum_ip += $score_val; $cnt_ip++; }
+                    }
+                } else {
+                    mysqli_query($conn,
+                        "INSERT INTO transition_raw_scores
+                         (assessment_id, section_key, indicator_code, sub_indicator_code,
+                          composite_key, cdoh_score, ip_score, scored_by)
+                         VALUES ($aid,'$section_key','$ind_safe','$sub_safe',
+                                 '$ck_safe',
+                                 " . ($type == 'cdoh' ? $score_val : 'NULL') . ",
+                                 " . ($type == 'ip' ? $score_val : 'NULL') . ",
+                                 '$assessed_by')");
+                    if ($type == 'cdoh' && $score_val !== 'NULL') { $sum_cdoh += $score_val; $cnt_cdoh++; }
+                    if ($type == 'ip' && $score_val !== 'NULL') { $sum_ip += $score_val; $cnt_ip++; }
+                }
+                $saved++;
+            }
         }
     }
 
@@ -196,7 +277,6 @@ if (isset($_POST['ajax_save_section'])) {
 
 // -- AJAX: final submit -------------------------------------------------------
 if (isset($_POST['ajax_submit'])) {
-    header('Content-Type: application/json');
     $aid = (int)($_POST['assessment_id'] ?? 0);
     if ($aid) {
         // Calculate final scores
@@ -222,11 +302,18 @@ if (isset($_POST['ajax_submit'])) {
     exit();
 }
 
+// Redirect if missing required params and not editing/viewing
+if (!$edit_id && (!$county_id || !$period || empty($sections))) {
+    header('Location: transition_index.php');
+    exit();
+}
+
 // -- Load existing assessment if editing or viewing ---------------------------
 $existing = null;
 $sections_saved = [];
 $submitted_sections = [];
 $is_readonly = $view_only;
+$existing_raw = [];
 
 if ($edit_id) {
     $existing = mysqli_fetch_assoc(mysqli_query($conn,
@@ -236,7 +323,7 @@ if ($edit_id) {
         $period = $existing['assessment_period'];
         $sections = isset($existing['sections_selected']) ?
             json_decode($existing['sections_selected'], true) : [];
-        if (empty($sections)) $sections = array_keys($all_sections);
+        // NOTE: fallback to all sections is performed later, AFTER $all_sections is defined.
 
         // Load section submissions
         $ss_result = mysqli_query($conn,
@@ -1015,7 +1102,13 @@ $all_sections = [
     ]
 ];
 
-// Filter sections based on selection
+// Fallback: if no sections specified (e.g. editing an old record without sections_selected,
+// or coming back via ?id=N) default to ALL sections so the form actually renders.
+if (empty($sections) || !is_array($sections)) {
+    $sections = array_keys($all_sections);
+}
+
+// Filter sections based on selection (preserve master order)
 $active_sections = array_intersect_key($all_sections, array_flip($sections));
 
 // Calculate total indicators for progress tracking
@@ -1045,6 +1138,9 @@ $pre_period = (string)($e_data['assessment_period'] ?? $period);
 $show_form = ($edit_id && $existing) || ($pre_county_id && $pre_period && !empty($active_sections));
 
 $page_title = $view_only ? 'View Transition Assessment' : ($edit_id ? 'Edit Assessment' : 'New Assessment');
+
+// Clear output buffer and start HTML output
+ob_end_clean();
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -1095,9 +1191,14 @@ $page_title = $view_only ? 'View Transition Assessment' : ($edit_id ? 'Edit Asse
 
         /* Section cards */
         .form-section{background:var(--card);border-radius:14px;margin-bottom:20px;
-            box-shadow:var(--shadow);overflow:hidden;border-left:4px solid var(--navy);scroll-margin-top:20px;}
+            box-shadow:var(--shadow);overflow:hidden;border-left:4px solid var(--navy);scroll-margin-top:20px;
+            transition:border-color .35s ease, box-shadow .35s ease;}
+        /* Saved sections turn green like the integration assessment */
+        .form-section.saved{border-left-color:var(--green);box-shadow:0 2px 16px rgba(39,174,96,.18);}
+        .form-section.saved .section-head{background:linear-gradient(90deg,#1e8649,var(--green));}
         .section-head{background:linear-gradient(90deg,var(--navy),var(--navy2));color:#fff;
-            padding:13px 22px;display:flex;justify-content:space-between;align-items:center;}
+            padding:13px 22px;display:flex;justify-content:space-between;align-items:center;
+            transition:background .35s ease;}
         .section-head-left{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:700;}
         .section-head-right{display:flex;align-items:center;gap:10px;}
         .saved-badge{background:rgba(39,174,96,.9);color:#fff;padding:3px 10px;border-radius:20px;
@@ -1332,7 +1433,7 @@ $page_title = $view_only ? 'View Transition Assessment' : ($edit_id ? 'Edit Asse
 <div id="mainForm">
 
 <?php foreach ($active_sections as $key => $section): ?>
-<div class="form-section" id="sec_<?= $key ?>">
+<div class="form-section <?= in_array($key,$sections_saved)?'saved':'' ?>" id="sec_<?= $key ?>">
     <div class="section-head">
         <div class="section-head-left">
             <i class="fas <?= $section['icon'] ?? 'fa-file' ?>"></i> <?= $section['title'] ?>
@@ -1360,8 +1461,8 @@ $page_title = $view_only ? 'View Transition Assessment' : ($edit_id ? 'Edit Asse
             <div class="indicator-title"><?= $indicator['name'] ?></div>
 
             <?php foreach ($indicator['sub_indicators'] as $sub_code => $sub_text):
-                $indicator_key = $key . '_' . $indicator_code . '_' . $sub_code;
-                $ex = $existing_raw[$indicator_key] ?? [];
+                $composite_key = $key . '_' . $indicator_code . '_' . $sub_code;
+                $ex = $existing_raw[$composite_key] ?? [];
 
                 $is_ip_only      = (bool)preg_match('/^T\d+A/', $indicator_code);
                 $is_cdoh_b       = (bool)preg_match('/^T\d+B/', $indicator_code);
@@ -1389,12 +1490,12 @@ $page_title = $view_only ? 'View Transition Assessment' : ($edit_id ? 'Edit Asse
                             <?php foreach ($scoring_criteria as $score => $criteria): ?>
                             <div class="radio-option <?= $criteria['class'] ?>">
                                 <input type="radio"
-                                       name="scores[<?= $indicator_key ?>][ip]"
+                                       name="scores[<?= $composite_key ?>][ip]"
                                        value="<?= $score ?>"
-                                       id="ip_<?= $indicator_key ?>_<?= $score ?>"
+                                       id="ip_<?= $composite_key ?>_<?= $score ?>"
                                        <?= isset($ex['ip_score']) && $ex['ip_score'] !== null && (string)$ex['ip_score'] === (string)$score ? 'checked' : '' ?>
                                        <?= is_readonly_attr($is_readonly) ?>>
-                                <label for="ip_<?= $indicator_key ?>_<?= $score ?>">
+                                <label for="ip_<?= $composite_key ?>_<?= $score ?>">
                                     <span class="score"><?= $score ?></span>
                                     <span class="label"><?= $labels_ip[$score] ?></span>
                                 </label>
@@ -1413,12 +1514,12 @@ $page_title = $view_only ? 'View Transition Assessment' : ($edit_id ? 'Edit Asse
                             <?php foreach ($scoring_criteria as $score => $criteria): ?>
                             <div class="radio-option <?= $criteria['class'] ?>">
                                 <input type="radio"
-                                       name="scores[<?= $indicator_key ?>][cdoh]"
+                                       name="scores[<?= $composite_key ?>][cdoh]"
                                        value="<?= $score ?>"
-                                       id="cdoh_<?= $indicator_key ?>_<?= $score ?>"
+                                       id="cdoh_<?= $composite_key ?>_<?= $score ?>"
                                        <?= isset($ex['cdoh_score']) && (string)$ex['cdoh_score'] === (string)$score ? 'checked' : '' ?>
                                        <?= is_readonly_attr($is_readonly) ?>>
-                                <label for="cdoh_<?= $indicator_key ?>_<?= $score ?>">
+                                <label for="cdoh_<?= $composite_key ?>_<?= $score ?>">
                                     <span class="score"><?= $score ?></span>
                                     <span class="label"><?= $labels_autonomy[$score] ?></span>
                                 </label>
@@ -1437,12 +1538,12 @@ $page_title = $view_only ? 'View Transition Assessment' : ($edit_id ? 'Edit Asse
                             <?php foreach ($scoring_criteria as $score => $criteria): ?>
                             <div class="radio-option <?= $criteria['class'] ?>">
                                 <input type="radio"
-                                       name="scores[<?= $indicator_key ?>][cdoh]"
+                                       name="scores[<?= $composite_key ?>][cdoh]"
                                        value="<?= $score ?>"
-                                       id="cdoh_<?= $indicator_key ?>_<?= $score ?>"
+                                       id="cdoh_<?= $composite_key ?>_<?= $score ?>"
                                        <?= isset($ex['cdoh_score']) && (string)$ex['cdoh_score'] === (string)$score ? 'checked' : '' ?>
                                        <?= is_readonly_attr($is_readonly) ?>>
-                                <label for="cdoh_<?= $indicator_key ?>_<?= $score ?>">
+                                <label for="cdoh_<?= $composite_key ?>_<?= $score ?>">
                                     <span class="score"><?= $score ?></span>
                                     <span class="label"><?= $labels_adequacy[$score] ?></span>
                                 </label>
@@ -1461,12 +1562,12 @@ $page_title = $view_only ? 'View Transition Assessment' : ($edit_id ? 'Edit Asse
                             <?php foreach ($scoring_criteria as $score => $criteria): ?>
                             <div class="radio-option <?= $criteria['class'] ?>">
                                 <input type="radio"
-                                       name="scores[<?= $indicator_key ?>][cdoh]"
+                                       name="scores[<?= $composite_key ?>][cdoh]"
                                        value="<?= $score ?>"
-                                       id="cdoh_<?= $indicator_key ?>_<?= $score ?>"
+                                       id="cdoh_<?= $composite_key ?>_<?= $score ?>"
                                        <?= isset($ex['cdoh_score']) && (string)$ex['cdoh_score'] === (string)$score ? 'checked' : '' ?>
                                        <?= is_readonly_attr($is_readonly) ?>>
-                                <label for="cdoh_<?= $indicator_key ?>_<?= $score ?>">
+                                <label for="cdoh_<?= $composite_key ?>_<?= $score ?>">
                                     <span class="score"><?= $score ?></span>
                                     <span class="label"><?= $labels_io[$score] ?></span>
                                 </label>
@@ -1480,12 +1581,12 @@ $page_title = $view_only ? 'View Transition Assessment' : ($edit_id ? 'Edit Asse
                             <?php foreach ($scoring_criteria as $score => $criteria): ?>
                             <div class="radio-option <?= $criteria['class'] ?>">
                                 <input type="radio"
-                                       name="scores[<?= $indicator_key ?>][ip]"
+                                       name="scores[<?= $composite_key ?>][ip]"
                                        value="<?= $score ?>"
-                                       id="ip_<?= $indicator_key ?>_<?= $score ?>"
+                                       id="ip_<?= $composite_key ?>_<?= $score ?>"
                                        <?= isset($ex['ip_score']) && $ex['ip_score'] !== null && (string)$ex['ip_score'] === (string)$score ? 'checked' : '' ?>
                                        <?= is_readonly_attr($is_readonly) ?>>
-                                <label for="ip_<?= $indicator_key ?>_<?= $score ?>">
+                                <label for="ip_<?= $composite_key ?>_<?= $score ?>">
                                     <span class="score"><?= $score ?></span>
                                     <span class="label"><?= $labels_io[$score] ?></span>
                                 </label>
@@ -1504,12 +1605,12 @@ $page_title = $view_only ? 'View Transition Assessment' : ($edit_id ? 'Edit Asse
                             <?php foreach ($scoring_criteria as $score => $criteria): ?>
                             <div class="radio-option <?= $criteria['class'] ?>">
                                 <input type="radio"
-                                       name="scores[<?= $indicator_key ?>][cdoh]"
+                                       name="scores[<?= $composite_key ?>][cdoh]"
                                        value="<?= $score ?>"
-                                       id="cdoh_<?= $indicator_key ?>_<?= $score ?>"
+                                       id="cdoh_<?= $composite_key ?>_<?= $score ?>"
                                        <?= isset($ex['cdoh_score']) && (string)$ex['cdoh_score'] === (string)$score ? 'checked' : '' ?>
                                        <?= is_readonly_attr($is_readonly) ?>>
-                                <label for="cdoh_<?= $indicator_key ?>_<?= $score ?>">
+                                <label for="cdoh_<?= $composite_key ?>_<?= $score ?>">
                                     <span class="score"><?= $score ?></span>
                                     <span class="label"><?= $labels_adequacy[$score] ?></span>
                                 </label>
@@ -1522,7 +1623,7 @@ $page_title = $view_only ? 'View Transition Assessment' : ($edit_id ? 'Edit Asse
 
                 <!-- Comments -->
                 <div class="comments-section">
-                    <textarea name="scores[<?= $indicator_key ?>][comments]"
+                    <textarea name="scores[<?= $composite_key ?>][comments]"
                               placeholder="Add comments or verification notes for this indicator..."
                               rows="2" <?= is_readonly_attr($is_readonly) ?>><?= htmlspecialchars($ex['comments'] ?? '') ?></textarea>
                 </div>
@@ -1569,7 +1670,7 @@ $page_title = $view_only ? 'View Transition Assessment' : ($edit_id ? 'Edit Asse
 </div>
 
 <!-- Submit Zone -->
-<?php if (!$is_readonly && !($existing['assessment_status'] ?? '') === 'Submitted'): ?>
+<?php if (!$is_readonly && (($existing['assessment_status'] ?? '') !== 'Submitted')): ?>
 <div class="submit-zone">
     <div class="submit-progress" id="submitProgressText">
         <i class="fas fa-info-circle"></i> Save all sections to unlock final submission
@@ -1643,11 +1744,17 @@ function updateProgress() {
 
     allSections.forEach(sk => {
         const item = document.querySelector(`.sec-nav-item[data-section="${sk}"]`);
-        if (!item) return;
-        const saved = sectionsSaved.includes(sk);
-        item.className = 'sec-nav-item ' + (saved?'saved':'unsaved');
-        const icon = item.querySelector('.sec-icon i');
-        if (icon) icon.className = 'fas ' + (saved?'fa-check-circle':'fa-circle');
+        if (item) {
+            const saved = sectionsSaved.includes(sk);
+            item.className = 'sec-nav-item ' + (saved?'saved':'unsaved');
+            const icon = item.querySelector('.sec-icon i');
+            if (icon) icon.className = 'fas ' + (saved?'fa-check-circle':'fa-circle');
+        }
+        // Also sync the section card and its badge
+        const card = document.getElementById('sec_' + sk);
+        if (card) card.classList.toggle('saved', sectionsSaved.includes(sk));
+        const badge = document.getElementById('badge_' + sk);
+        if (badge) badge.classList.toggle('show', sectionsSaved.includes(sk));
     });
 
     const btn = document.getElementById('btnFinalSubmit');
@@ -1683,7 +1790,11 @@ async function loadAssessment() {
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Checking...';
 
     try {
-        const response = await fetch(`transition_assessment.php?ajax=check_assessment&county_id=${cid}&period=${encodeURIComponent(period)}`);
+        const response = await fetch(`transition_assessment.php?ajax=check_assessment&county_id=${cid}&period=${encodeURIComponent(period)}`, {
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        });
         const data = await response.json();
 
         if (data.exists) {
@@ -1759,6 +1870,9 @@ async function saveSection(sectionKey) {
     fd.append('assessment_period', period);
     fd.append('assessment_id', assessmentId);
     fd.append('county_name', cname);
+    // Send the full ordered list of sections being assessed so the server can
+    // persist sections_selected on the very first save.
+    fd.append('sections_selected', JSON.stringify(allSections));
 
     const adate = document.getElementById('assessment_date_input');
     if (adate) fd.append('assessment_date', adate.value);
@@ -1766,12 +1880,11 @@ async function saveSection(sectionKey) {
     // Collect all scores from this section
     const sec = document.getElementById('sec_' + sectionKey);
     if (sec) {
-        // Collect radio buttons - FIX: need to get both checked and unchecked values
-        // But radios only send when checked, so we need to ensure we capture all
-        const allRadios = sec.querySelectorAll('input[type="radio"]');
+        // Collect radio buttons
+        const radios = sec.querySelectorAll('input[type="radio"]');
         const processedGroups = new Set();
 
-        allRadios.forEach(radio => {
+        radios.forEach(radio => {
             const name = radio.name;
             if (!processedGroups.has(name)) {
                 processedGroups.add(name);
@@ -1794,22 +1907,30 @@ async function saveSection(sectionKey) {
     try {
         const response = await fetch('transition_assessment.php', {
             method: 'POST',
-            body: fd
+            body: fd,
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            }
         });
 
-        // Check if response is OK
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
 
         const text = await response.text();
 
-        // Try to parse JSON, but if it fails, log the response
+        // Check if response is HTML
+        if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
+            console.error('Received HTML instead of JSON. Session may have expired.');
+            showToast('Session expired. Please refresh the page and login again.', 'error');
+            return;
+        }
+
         let data;
         try {
             data = JSON.parse(text);
         } catch (e) {
-            console.error('Response text:', text.substring(0, 500)); // Log first 500 chars
+            console.error('Response text:', text.substring(0, 500));
             throw new Error('Server returned invalid JSON. Check PHP errors.');
         }
 
@@ -1817,19 +1938,26 @@ async function saveSection(sectionKey) {
             assessmentId = data.assessment_id;
             const hAid = document.getElementById('h_assessment_id');
             if (hAid) hAid.value = assessmentId;
-            sectionsSaved = data.sections_saved;
+            sectionsSaved = data.sections_saved || [];
 
+            // Show the green "Saved" badge
             const badge = document.getElementById('badge_' + sectionKey);
             if (badge) badge.classList.add('show');
 
+            // Turn the section card green
+            const card = document.getElementById('sec_' + sectionKey);
+            if (card) card.classList.add('saved');
+
             updateProgress();
-            showToast('Section saved successfully! CDOH: ' + data.avg_cdoh_pct + '%', 'success');
+            const cdohTxt = (data.avg_cdoh_pct !== undefined && data.avg_cdoh_pct !== null)
+                ? (' CDOH: ' + data.avg_cdoh_pct + '%') : '';
+            showToast('Section saved successfully!' + cdohTxt, 'success');
         } else {
             showToast(data.error || 'Save failed', 'error');
         }
     } catch(e) {
         console.error('Save error:', e);
-        showToast('Error saving section – please try again', 'error');
+        showToast('Error saving section - please try again', 'error');
     } finally {
         btn.innerHTML = origTxt;
         btn.classList.remove('saving');
@@ -1847,7 +1975,14 @@ async function finalSubmit() {
     fd.append('county_id', document.getElementById('h_county_id')?.value || '');
 
     try {
-        const data = await fetch('transition_assessment.php', {method:'POST', body:fd}).then(r=>r.json());
+        const response = await fetch('transition_assessment.php', {
+            method: 'POST',
+            body: fd,
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        });
+        const data = await response.json();
         if (data.success) {
             showToast('Assessment submitted successfully! Redirecting...', 'success');
             setTimeout(() => window.location.href = data.redirect, 1500);
@@ -1855,7 +1990,7 @@ async function finalSubmit() {
             showToast(data.error || 'Submission failed', 'error');
         }
     } catch(e) {
-        showToast('Network error ? please try again', 'error');
+        showToast('Network error - please try again', 'error');
     }
 }
 

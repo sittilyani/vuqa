@@ -2,6 +2,7 @@
 session_start();
 include('../includes/config.php');
 include('../includes/session_check.php');
+include('../includes/county_access.php');
 
 if (!isset($_SESSION['user_id'])) {
     header('Location: ../login.php');
@@ -21,6 +22,8 @@ if ($status_filter === 'completed') {
 } elseif ($status_filter === 'incomplete') {
     $where .= " AND cca.is_completed = 0";
 }
+// Restrict the list to assigned counties for non-admins
+$where .= cf_county_filter_sql('cca.county_id');
 
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 $limit = 20;

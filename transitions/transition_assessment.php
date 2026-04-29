@@ -1,351 +1,48 @@
 <?php
 // transitions/transition_assessment.php
-// Start output buffering to prevent premature output
-ob_start();
-
+ob_start(); // Capture any stray output so AJAX JSON is not corrupted
 session_start();
 include('../includes/config.php');
 include('../includes/session_check.php');
-
-// Set JSON header for AJAX responses early
-$is_ajax = isset($_SERVER['HTTP_X_REQUESTED_WITH']) &&
-           strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest';
-
-// Check if this is an AJAX request
-if ($is_ajax || isset($_POST['ajax_save_section']) || isset($_POST['ajax_submit']) || isset($_GET['ajax'])) {
-    header('Content-Type: application/json');
-
-    // Check if user is logged in
-    if (!isset($_SESSION['user_id'])) {
-        echo json_encode(['success' => false, 'error' => 'Session expired. Please login again.']);
-        exit();
-    }
-}
 
 if (!isset($_SESSION['user_id'])) {
     header('Location: ../login.php');
     exit();
 }
 
-$collected_by = $_SESSION['full_name'] ?? '';
-$uid = (int)$_SESSION['user_id'];
-$user_role = $_SESSION['role'] ?? '';
-$is_admin = in_array($user_role, ['Admin', 'Super Admin']);
-
 // Get parameters
 $county_id = isset($_GET['county']) ? (int)$_GET['county'] : 0;
 $period = isset($_GET['period']) ? mysqli_real_escape_string($conn, $_GET['period']) : '';
 $sections = isset($_GET['sections']) ? explode(',', $_GET['sections']) : [];
 
-// Determine mode
-$edit_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
-$view_only = isset($_GET['view']) && !isset($_GET['edit']);
-
-// -- AJAX: check existing assessment -----------------------------------------
-if (isset($_GET['ajax']) && $_GET['ajax'] === 'check_assessment') {
-    $cid    = (int)($_GET['county_id'] ?? 0);
-    $period = mysqli_real_escape_string($conn, $_GET['period'] ?? '');
-    $result = ['exists' => false];
-    if ($cid && $period) {
-        $row = mysqli_fetch_assoc(mysqli_query($conn,
-            "SELECT assessment_id, assessment_status, readiness_level, county_name, assessment_date
-             FROM transition_assessments
-             WHERE county_id=$cid AND assessment_period='$period'
-             ORDER BY assessment_id DESC LIMIT 1"));
-        if ($row) {
-            $ss_result = mysqli_query($conn,
-                "SELECT section_key, submitted_at, sub_count, avg_cdoh, avg_ip
-                 FROM transition_section_submissions WHERE assessment_id = {$row['assessment_id']}");
-            $ss = [];
-            while ($r = mysqli_fetch_assoc($ss_result)) $ss[$r['section_key']] = $r;
-            $result = [
-                'exists'         => true,
-                'assessment_id'  => $row['assessment_id'],
-                'status'         => $row['assessment_status'],
-                'readiness_level'=> $row['readiness_level'],
-                'county_name'    => $row['county_name'],
-                'sections_saved' => array_keys($ss),
-                'section_data'   => $ss
-            ];
-        }
-    }
-    echo json_encode($result);
-    exit();
-}
-
-// -- AJAX: save a single section ---------------------------------------------
-if (isset($_POST['ajax_save_section'])) {
-    $section_key     = mysqli_real_escape_string($conn, $_POST['section_key'] ?? '');
-    $cid             = (int)($_POST['county_id'] ?? 0);
-    $period_safe     = mysqli_real_escape_string($conn, $_POST['assessment_period'] ?? '');
-    $aid             = (int)($_POST['assessment_id'] ?? 0);
-    $assessed_by     = mysqli_real_escape_string($conn, $collected_by);
-    $assessment_date = mysqli_real_escape_string($conn, $_POST['assessment_date'] ?? date('Y-m-d'));
-    $county_name     = mysqli_real_escape_string($conn, $_POST['county_name'] ?? '');
-
-    if (!$cid || !$period_safe || !$section_key) {
-        echo json_encode(['success'=>false,'error'=>'Missing required fields']);
-        exit();
-    }
-
-    // -- Get or create assessment header -------------------------------------
-    if (!$aid) {
-        $existing = mysqli_fetch_assoc(mysqli_query($conn,
-            "SELECT assessment_id FROM transition_assessments
-             WHERE county_id=$cid AND assessment_period='$period_safe' ORDER BY assessment_id DESC LIMIT 1"));
-        if ($existing) {
-            $aid = (int)$existing['assessment_id'];
-        } else {
-            mysqli_query($conn,
-                "INSERT INTO transition_assessments
-                 (county_id, county_name, assessment_period, assessment_date, assessed_by, assessment_status, readiness_level)
-                 VALUES ($cid, '$county_name', '$period_safe', '$assessment_date', '$assessed_by', 'Draft', 'Not Rated')");
-            $aid = (int)mysqli_insert_id($conn);
-        }
-    }
-
-    // -- Delete existing raw scores for this section -------------------------
-    mysqli_query($conn,
-        "DELETE FROM transition_raw_scores
-         WHERE assessment_id=$aid AND section_key='$section_key'");
-
-    $saved = 0;
-    $sum_cdoh = 0; $cnt_cdoh = 0;
-    $sum_ip   = 0; $cnt_ip   = 0;
-
-    // Process scores array: scores[composite_key][cdoh/ip/comments]
-    if (!empty($_POST['scores']) && is_array($_POST['scores'])) {
-        foreach ($_POST['scores'] as $composite_key => $vals) {
-            $ck_safe  = mysqli_real_escape_string($conn, $composite_key);
-            $parts    = explode('_', $composite_key);
-            $sub_code = end($parts);
-            $sub_safe = mysqli_real_escape_string($conn, $sub_code);
-            $ind_code = preg_replace('/\.\d+$/', '', $sub_code);
-            $ind_safe = mysqli_real_escape_string($conn, $ind_code);
-
-            $cdoh  = isset($vals['cdoh']) && $vals['cdoh'] !== '' ? (int)$vals['cdoh'] : 'NULL';
-            $ip    = isset($vals['ip'])   && $vals['ip']   !== '' ? (int)$vals['ip']   : 'NULL';
-            $comm  = mysqli_real_escape_string($conn, $vals['comments'] ?? '');
-
-            if ($cdoh === 'NULL' && $ip === 'NULL') continue;
-
-            mysqli_query($conn,
-                "INSERT INTO transition_raw_scores
-                 (assessment_id, section_key, indicator_code, sub_indicator_code,
-                  composite_key, cdoh_score, ip_score, comments, scored_by)
-                 VALUES ($aid,'$section_key','$ind_safe','$sub_safe',
-                         '$ck_safe',$cdoh,$ip,'$comm','$assessed_by')
-                 ON DUPLICATE KEY UPDATE
-                   cdoh_score=VALUES(cdoh_score), ip_score=VALUES(ip_score),
-                   comments=VALUES(comments), scored_at=NOW()");
-            $saved++;
-            if ($cdoh !== 'NULL') { $sum_cdoh += $cdoh; $cnt_cdoh++; }
-            if ($ip   !== 'NULL') { $sum_ip   += $ip;   $cnt_ip++;   }
-        }
-    }
-
-    // Also process direct radio inputs (not nested in scores array)
-    foreach ($_POST as $key => $value) {
-        if (strpos($key, 'scores[') === 0 && !is_array($value)) {
-            // Parse composite key from name like scores[composite_key][cdoh]
-            if (preg_match('/scores\[([^\]]+)\]\[([^\]]+)\]/', $key, $matches)) {
-                $composite_key = $matches[1];
-                $type = $matches[2]; // 'cdoh' or 'ip'
-
-                $ck_safe  = mysqli_real_escape_string($conn, $composite_key);
-                $parts    = explode('_', $composite_key);
-                $sub_code = end($parts);
-                $sub_safe = mysqli_real_escape_string($conn, $sub_code);
-                $ind_code = preg_replace('/\.\d+$/', '', $sub_code);
-                $ind_safe = mysqli_real_escape_string($conn, $ind_code);
-
-                $score_val = $value !== '' ? (int)$value : 'NULL';
-
-                // Check if record exists
-                $existing = mysqli_fetch_assoc(mysqli_query($conn,
-                    "SELECT id, cdoh_score, ip_score FROM transition_raw_scores
-                     WHERE assessment_id=$aid AND composite_key='$ck_safe'"));
-
-                if ($existing) {
-                    if ($type == 'cdoh') {
-                        mysqli_query($conn,
-                            "UPDATE transition_raw_scores SET cdoh_score=$score_val, scored_at=NOW()
-                             WHERE assessment_id=$aid AND composite_key='$ck_safe'");
-                        if ($score_val !== 'NULL') { $sum_cdoh += $score_val; $cnt_cdoh++; }
-                    } else if ($type == 'ip') {
-                        mysqli_query($conn,
-                            "UPDATE transition_raw_scores SET ip_score=$score_val, scored_at=NOW()
-                             WHERE assessment_id=$aid AND composite_key='$ck_safe'");
-                        if ($score_val !== 'NULL') { $sum_ip += $score_val; $cnt_ip++; }
-                    }
-                } else {
-                    mysqli_query($conn,
-                        "INSERT INTO transition_raw_scores
-                         (assessment_id, section_key, indicator_code, sub_indicator_code,
-                          composite_key, cdoh_score, ip_score, scored_by)
-                         VALUES ($aid,'$section_key','$ind_safe','$sub_safe',
-                                 '$ck_safe',
-                                 " . ($type == 'cdoh' ? $score_val : 'NULL') . ",
-                                 " . ($type == 'ip' ? $score_val : 'NULL') . ",
-                                 '$assessed_by')");
-                    if ($type == 'cdoh' && $score_val !== 'NULL') { $sum_cdoh += $score_val; $cnt_cdoh++; }
-                    if ($type == 'ip' && $score_val !== 'NULL') { $sum_ip += $score_val; $cnt_ip++; }
-                }
-                $saved++;
-            }
-        }
-    }
-
-    $avg_c_val = $cnt_cdoh > 0 ? round($sum_cdoh/$cnt_cdoh, 2) : 'NULL';
-    $avg_i_val = $cnt_ip   > 0 ? round($sum_ip/$cnt_ip,     2) : 'NULL';
-
-    // Upsert section submission record
-    mysqli_query($conn,
-        "INSERT INTO transition_section_submissions
-         (assessment_id, county_id, assessment_period, section_key,
-          submitted_by, sub_count, avg_cdoh, avg_ip)
-         VALUES ($aid,$cid,'$period_safe','$section_key',
-                 '$assessed_by',$saved,$avg_c_val,$avg_i_val)
-         ON DUPLICATE KEY UPDATE
-           county_id=$cid, assessment_period='$period_safe',
-           submitted_by='$assessed_by', submitted_at=NOW(),
-           sub_count=$saved, avg_cdoh=$avg_c_val, avg_ip=$avg_i_val");
-
-    // Update assessment readiness
-    $ov = mysqli_fetch_assoc(mysqli_query($conn,
-        "SELECT AVG(cdoh_score) as avg_cdoh_raw, AVG(ip_score) as avg_ip_raw,
-                COUNT(*) as total_scored
-         FROM transition_raw_scores WHERE assessment_id=$aid"));
-    $oc_raw = $ov['avg_cdoh_raw'] !== null ? (float)$ov['avg_cdoh_raw'] : 0;
-    $oi_raw = $ov['avg_ip_raw']   !== null ? (float)$ov['avg_ip_raw']   : 0;
-    $total_scored = (int)$ov['total_scored'];
-
-    $oc_pct = $total_scored > 0 ? round(($oc_raw / 4) * 100) : 0;
-    $rd = $oc_pct >= 70 ? 'Transition' : ($oc_pct >= 50 ? 'Support and Monitor' : 'Not Ready');
-
-    mysqli_query($conn,
-        "UPDATE transition_assessments
-         SET assessment_status='Draft', readiness_level='$rd',
-             last_saved_at=NOW(), last_saved_by='$assessed_by'
-         WHERE assessment_id=$aid");
-
-    // Get updated sections list
-    $ss_result = mysqli_query($conn,
-        "SELECT section_key, submitted_at, sub_count, avg_cdoh, avg_ip
-         FROM transition_section_submissions WHERE assessment_id=$aid");
-    $all_ss = [];
-    while ($r = mysqli_fetch_assoc($ss_result)) $all_ss[$r['section_key']] = $r;
-
-    echo json_encode([
-        'success'        => true,
-        'assessment_id'  => $aid,
-        'section_key'    => $section_key,
-        'saved'          => $saved,
-        'submitted_at'   => date('d M Y H:i'),
-        'avg_cdoh_pct'   => $avg_c_val !== 'NULL' ? round((float)$avg_c_val/4*100) : 0,
-        'avg_ip_pct'     => $avg_i_val !== 'NULL' ? round((float)$avg_i_val/4*100) : 0,
-        'overall_cdoh_pct'=> $oc_pct,
-        'readiness_level' => $rd,
-        'sections_saved'  => array_keys($all_ss),
-        'section_data'    => $all_ss
-    ]);
-    exit();
-}
-
-// -- AJAX: final submit -------------------------------------------------------
-if (isset($_POST['ajax_submit'])) {
-    $aid = (int)($_POST['assessment_id'] ?? 0);
-    if ($aid) {
-        // Calculate final scores
-        $ov = mysqli_fetch_assoc(mysqli_query($conn,
-            "SELECT AVG(cdoh_score) as avg_cdoh_raw, AVG(ip_score) as avg_ip_raw,
-                    COUNT(*) as total_scored
-             FROM transition_raw_scores WHERE assessment_id=$aid"));
-        $oc_raw = $ov['avg_cdoh_raw'] !== null ? (float)$ov['avg_cdoh_raw'] : 0;
-        $total_scored = (int)$ov['total_scored'];
-        $oc_pct = $total_scored > 0 ? round(($oc_raw / 4) * 100) : 0;
-        $rd = $oc_pct >= 70 ? 'Transition' : ($oc_pct >= 50 ? 'Support and Monitor' : 'Not Ready');
-
-        mysqli_query($conn,
-            "UPDATE transition_assessments
-             SET assessment_status='Submitted', readiness_level='$rd',
-                 submitted_at=NOW(), submitted_by='".mysqli_real_escape_string($conn,$collected_by)."',
-                 last_saved_at=NOW(), last_saved_by='".mysqli_real_escape_string($conn,$collected_by)."'
-             WHERE assessment_id=$aid");
-        echo json_encode(['success'=>true,'redirect'=>'transition_dashboard.php?county='.$_POST['county_id']]);
-    } else {
-        echo json_encode(['success'=>false,'error'=>'No assessment ID']);
-    }
-    exit();
-}
-
-// Redirect if missing required params and not editing/viewing
-if (!$edit_id && (!$county_id || !$period || empty($sections))) {
+if (!$county_id || !$period || empty($sections)) {
     header('Location: transition_index.php');
     exit();
 }
 
-// -- Load existing assessment if editing or viewing ---------------------------
-$existing = null;
-$sections_saved = [];
-$submitted_sections = [];
-$is_readonly = $view_only;
-$existing_raw = [];
+// Get county name
+$county_result = $conn->query("SELECT county_name FROM counties WHERE county_id = $county_id");
+$county_name = $county_result->fetch_assoc()['county_name'];
 
-if ($edit_id) {
-    $existing = mysqli_fetch_assoc(mysqli_query($conn,
-        "SELECT * FROM transition_assessments WHERE assessment_id=$edit_id LIMIT 1"));
-    if ($existing) {
-        $county_id = (int)$existing['county_id'];
-        $period = $existing['assessment_period'];
-        $sections = isset($existing['sections_selected']) ?
-            json_decode($existing['sections_selected'], true) : [];
-        if (empty($sections)) $sections = array_keys($all_sections);
+// Check if this is a new assessment or editing existing
+$assessment_id = isset($_GET['assessment_id']) ? (int)$_GET['assessment_id'] : 0;
+$existing_scores = [];
 
-        // Load section submissions
-        $ss_result = mysqli_query($conn,
-            "SELECT section_key, submitted_at, sub_count, avg_cdoh, avg_ip
-             FROM transition_section_submissions WHERE assessment_id=$edit_id");
-        while ($r = mysqli_fetch_assoc($ss_result)) {
-            $submitted_sections[$r['section_key']] = $r;
-            $sections_saved[] = $r['section_key'];
-        }
+// -- Load existing RAW scores (sub-indicator level) for pre-filling form ------
+// key: "section_indicator_subcode" e.g. "leadership_T1_T1.1"
+$existing_raw = [];       // [composite_key => ['cdoh'=>x,'ip'=>x,'comments'=>x]]
+$submitted_sections = []; // [section_key => ['submitted_at'=>..., 'sub_count'=>..., 'avg_cdoh'=>...]]
 
-        // If submitted and not admin, force read-only
-        if (($existing['assessment_status'] === 'Submitted') && !$is_admin) {
-            $is_readonly = true;
-        }
-    }
-}
-
-// If no edit_id but county+period provided, check for existing
-$assessment_id = 0;
-if (!$edit_id && $county_id && $period) {
+// If no assessment_id in URL, look up by county+period (draft or submitted)
+if (!$assessment_id) {
     $chk = mysqli_fetch_assoc(mysqli_query($conn,
-        "SELECT assessment_id, assessment_status, readiness_level
-         FROM transition_assessments
+        "SELECT assessment_id FROM transition_assessments
          WHERE county_id=$county_id AND assessment_period='$period'
          ORDER BY assessment_date DESC LIMIT 1"));
-    if ($chk) {
-        $assessment_id = (int)$chk['assessment_id'];
-        // Load existing raw scores
-        $rr = mysqli_query($conn,
-            "SELECT composite_key, cdoh_score, ip_score, comments
-             FROM transition_raw_scores WHERE assessment_id = $assessment_id");
-        if ($rr) while ($row = mysqli_fetch_assoc($rr)) {
-            $existing_raw[$row['composite_key']] = $row;
-        }
-        // Load section submissions
-        $sr = mysqli_query($conn,
-            "SELECT section_key, submitted_at, sub_count, avg_cdoh, avg_ip
-             FROM transition_section_submissions WHERE assessment_id = $assessment_id");
-        if ($sr) while ($row = mysqli_fetch_assoc($sr)) {
-            $submitted_sections[$row['section_key']] = $row;
-            $sections_saved[] = $row['section_key'];
-        }
-    }
-} elseif ($edit_id && $existing) {
-    $assessment_id = $edit_id;
+    if ($chk) $assessment_id = (int)$chk['assessment_id'];
+}
+
+if ($assessment_id) {
     // Load raw scores
     $rr = mysqli_query($conn,
         "SELECT composite_key, cdoh_score, ip_score, comments
@@ -353,20 +50,28 @@ if (!$edit_id && $county_id && $period) {
     if ($rr) while ($row = mysqli_fetch_assoc($rr)) {
         $existing_raw[$row['composite_key']] = $row;
     }
-}
-
-// Get county name
-$county_name = '';
-if ($county_id) {
-    $county_result = $conn->query("SELECT county_name FROM counties WHERE county_id = $county_id");
-    if ($county_result && $county_result->num_rows > 0) {
-        $county_name = $county_result->fetch_assoc()['county_name'];
+    // Load section submission log
+    $sr = mysqli_query($conn,
+        "SELECT section_key, submitted_at, sub_count, avg_cdoh, avg_ip
+         FROM transition_section_submissions WHERE assessment_id = $assessment_id");
+    if ($sr) while ($row = mysqli_fetch_assoc($sr)) {
+        $submitted_sections[$row['section_key']] = $row;
     }
-} elseif ($existing) {
-    $county_name = $existing['county_name'] ?? '';
 }
 
-// Define scoring criteria
+// Load section-level comments from transition_comments
+$section_comments = [];
+if ($assessment_id) {
+    $tc = mysqli_query($conn,
+        "SELECT section_key, comment_text
+         FROM transition_comments
+         WHERE assessment_id = $assessment_id AND comment_type = 'section' AND section_key IS NOT NULL");
+    if ($tc) while ($row = mysqli_fetch_assoc($tc)) {
+        $section_comments[$row['section_key']] = $row['comment_text'];
+    }
+}
+
+// Define scoring criteria for each level
 $scoring_criteria = [
     4 => ['label' => 'Fully adequate with evidence', 'class' => 'level-4'],
     3 => ['label' => 'Partially adequate with evidence', 'class' => 'level-3'],
@@ -381,7 +86,7 @@ $all_sections = [
         'title' => 'COUNTY LEVEL LEADERSHIP AND GOVERNANCE',
         'icon' => 'fa-landmark',
         'color' => '#0D1A63',
-        'has_ip' => false,
+        'has_ip' => false, // T1, T2, T3 are CDOH only
         'indicators' => [
             'T1' => [
                 'code' => 'T1',
@@ -1040,7 +745,7 @@ $all_sections = [
         'title' => 'COUNTY LEVEL INSTITUTIONAL OWNERSHIP INDICATOR',
         'icon' => 'fa-building',
         'color' => '#F5A623',
-        'has_ip' => false,
+        'has_ip' => false, // IO indicators are CDOH only
         'indicators' => [
             'IO1' => [
                 'code' => 'IO1',
@@ -1082,6 +787,257 @@ $all_sections = [
 // Filter sections based on selection
 $active_sections = array_intersect_key($all_sections, array_flip($sections));
 
+// -- Handle SECTION save (AJAX per-section) ------------------------------------
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_section'])) {
+    $section_key     = mysqli_real_escape_string($conn, $_POST['section_key'] ?? '');
+    $assessed_by     = mysqli_real_escape_string($conn, $_SESSION['full_name'] ?? '');
+    $assessment_date = mysqli_real_escape_string($conn, $_POST['assessment_date'] ?? date('Y-m-d'));
+
+    mysqli_begin_transaction($conn);
+    try {
+        // Create or reuse assessment record
+        if (!$assessment_id) {
+            $ex = mysqli_fetch_assoc(mysqli_query($conn,
+                "SELECT assessment_id FROM transition_assessments
+                 WHERE county_id=$county_id AND assessment_period='$period' LIMIT 1"));
+            if ($ex) {
+                $assessment_id = (int)$ex['assessment_id'];
+            } else {
+                mysqli_query($conn,
+                    "INSERT INTO transition_assessments
+                     (county_id, assessment_period, assessment_date, assessed_by, assessment_status)
+                     VALUES ($county_id,'$period','$assessment_date','$assessed_by','draft')");
+                $assessment_id = (int)mysqli_insert_id($conn);
+            }
+        }
+
+        // Delete existing raw scores for this section only
+        mysqli_query($conn,
+            "DELETE FROM transition_raw_scores
+             WHERE assessment_id=$assessment_id AND section_key='$section_key'");
+
+        $saved = 0;
+        $sum_cdoh = 0; $cnt_cdoh = 0;
+        $sum_ip   = 0; $cnt_ip   = 0;
+
+        // Scores arrive as scores[section_indicator_subcode][cdoh/ip/comments]
+        if (!empty($_POST['scores'])) {
+            foreach ($_POST['scores'] as $composite_key => $vals) {
+                $ck_safe  = mysqli_real_escape_string($conn, $composite_key);
+                // Parse composite key e.g. "leadership_T1_T1.1"
+                $parts    = explode('_', $composite_key);
+                $sub_code = end($parts);                          // T1.1
+                $sub_safe = mysqli_real_escape_string($conn, $sub_code);
+                $ind_code = preg_replace('/\.\d+$/', '', $sub_code); // T1
+                $ind_safe = mysqli_real_escape_string($conn, $ind_code);
+
+                $cdoh  = isset($vals['cdoh']) && $vals['cdoh'] !== '' ? (int)$vals['cdoh'] : 'NULL';
+                $ip    = isset($vals['ip'])   && $vals['ip']   !== '' ? (int)$vals['ip']   : 'NULL';
+                $comm  = mysqli_real_escape_string($conn, $vals['comments'] ?? '');
+
+                if ($cdoh === 'NULL' && $ip === 'NULL') continue;
+
+                mysqli_query($conn,
+                    "INSERT INTO transition_raw_scores
+                     (assessment_id, section_key, indicator_code, sub_indicator_code,
+                      composite_key, cdoh_score, ip_score, comments, scored_by)
+                     VALUES ($assessment_id,'$section_key','$ind_safe','$sub_safe',
+                             '$ck_safe',$cdoh,$ip,'$comm','$assessed_by')
+                     ON DUPLICATE KEY UPDATE
+                       cdoh_score=VALUES(cdoh_score), ip_score=VALUES(ip_score),
+                       comments=VALUES(comments), scored_at=NOW()");
+                $saved++;
+                if ($cdoh !== 'NULL') { $sum_cdoh += $cdoh; $cnt_cdoh++; }
+                if ($ip   !== 'NULL') { $sum_ip   += $ip;   $cnt_ip++;   }
+            }
+        }
+
+        $avg_c_val = $cnt_cdoh > 0 ? round($sum_cdoh/$cnt_cdoh, 2) : 'NULL';
+        $avg_i_val = $cnt_ip   > 0 ? round($sum_ip/$cnt_ip,     2) : 'NULL';
+
+        // Upsert section submission record
+        mysqli_query($conn,
+            "INSERT INTO transition_section_submissions
+             (assessment_id, section_key, submitted_by, sub_count, avg_cdoh, avg_ip)
+             VALUES ($assessment_id,'$section_key','$assessed_by',$saved,$avg_c_val,$avg_i_val)
+             ON DUPLICATE KEY UPDATE
+               submitted_by='$assessed_by', submitted_at=NOW(),
+               sub_count=$saved, avg_cdoh=$avg_c_val, avg_ip=$avg_i_val");
+
+        // Mark assessment as draft with updated readiness
+        $ov = mysqli_fetch_assoc(mysqli_query($conn,
+            "SELECT AVG(cdoh_percent) oc, AVG(ip_percent) oi
+             FROM transition_section_submissions WHERE assessment_id=$assessment_id"));
+        $oc = $ov['oc'] !== null ? round((float)$ov['oc']) : 0;
+        $rd = $oc>=70?'Transition':($oc>=50?'Support and Monitor':'Not Ready');
+        mysqli_query($conn,
+            "UPDATE transition_assessments SET assessment_status='draft', readiness_level='$rd'
+             WHERE assessment_id=$assessment_id");
+
+        // Save section-level comment to transition_comments
+        $sec_comment_raw = $_POST['section_comment'] ?? '';
+        if ($sec_comment_raw !== '') {
+            $sec_comment_safe = mysqli_real_escape_string($conn, $sec_comment_raw);
+            $sk_safe_c = mysqli_real_escape_string($conn, $_POST['section_key'] ?? $section_key);
+            // Remove old comment for this section then insert fresh
+            mysqli_query($conn,
+                "DELETE FROM transition_comments
+                 WHERE assessment_id=$assessment_id AND comment_type='section' AND section_key='$sk_safe_c'");
+            mysqli_query($conn,
+                "INSERT INTO transition_comments (assessment_id, section_key, comment_type, comment_text, created_by)
+                 VALUES ($assessment_id,'$sk_safe_c','section','$sec_comment_safe','$assessed_by')");
+        }
+
+        // Determine completeness: count total expected sub-indicators for this section
+        $total_expected = (int)($_POST['total_expected'] ?? 0);
+        $is_complete = ($total_expected > 0 && $saved >= $total_expected);
+
+        mysqli_commit($conn);
+
+        ob_clean();
+        header('Content-Type: application/json');
+        echo json_encode([
+            'success'        => true,
+            'assessment_id'  => $assessment_id,
+            'section_key'    => $section_key,
+            'saved'          => $saved,
+            'total_expected' => $total_expected,
+            'is_complete'    => $is_complete,
+            'submitted_at'   => date('d M Y H:i'),
+            'avg_cdoh_pct'   => $avg_c_val !== 'NULL' ? round((float)$avg_c_val/4*100, 2) : 0,
+            'avg_ip_pct'     => $avg_i_val !== 'NULL' ? round((float)$avg_i_val/4*100, 2) : 0,
+        ]);
+        exit();
+
+    } catch (Exception $e) {
+        mysqli_rollback($conn);
+        ob_clean();
+        header('Content-Type: application/json');
+        echo json_encode(['success'=>false,'error'=>$e->getMessage()]);
+        exit();
+    }
+}
+
+// -- Handle full SUBMIT ALL (final) --------------------------------------------
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_assessment'])) {
+    $assessed_by = mysqli_real_escape_string($conn, $_SESSION['full_name'] ?? '');
+    $assessment_date = mysqli_real_escape_string($conn, $_POST['assessment_date'] ?? date('Y-m-d'));
+
+    // Begin transaction
+    mysqli_begin_transaction($conn);
+
+    try {
+        // Create new assessment or update existing
+        if ($assessment_id) {
+            $update_query = "UPDATE transition_assessments SET
+                assessment_date = '$assessment_date',
+                assessed_by = '$assessed_by',
+                assessment_status = 'submitted'
+                WHERE assessment_id = $assessment_id";
+            if (!mysqli_query($conn, $update_query)) {
+                throw new Exception("Error updating assessment: " . mysqli_error($conn));
+            }
+            // (transition_scores dropped ï¿½ raw scores in transition_raw_scores)
+        } else {
+            $insert_query = "INSERT INTO transition_assessments
+                (county_id, assessment_period, assessment_date, assessed_by, assessment_status)
+                VALUES ($county_id, '$period', '$assessment_date', '$assessed_by', 'submitted')";
+            if (!mysqli_query($conn, $insert_query)) {
+                throw new Exception("Error creating assessment: " . mysqli_error($conn));
+            }
+            $assessment_id = mysqli_insert_id($conn);
+        }
+
+        // Save raw scores + upsert section submissions from POST
+        $total_cdoh = 0;
+        $total_ip = 0;
+        $indicator_count = 0;
+        $section_agg = []; // [section_key => [sum_cdoh,cnt_cdoh,sum_ip,cnt_ip,count]]
+
+        foreach ($_POST['scores'] as $composite_key => $scores) {
+            $parts         = explode('_', $composite_key);
+            $sub_code      = end($parts);
+            $ind_code      = preg_replace('/\.\d+$/', '', $sub_code);
+            $section_key_p = $parts[0] ?? '';
+
+            $cdoh_score = isset($scores['cdoh']) && $scores['cdoh'] !== '' ? (int)$scores['cdoh'] : null;
+            $ip_score   = isset($scores['ip'])   && $scores['ip']   !== '' ? (int)$scores['ip']   : null;
+            $comments   = mysqli_real_escape_string($conn, $scores['comments'] ?? '');
+
+            if ($cdoh_score === null && $ip_score === null) continue;
+
+            // Save raw score
+            $ck_safe  = mysqli_real_escape_string($conn, $composite_key);
+            $sub_safe = mysqli_real_escape_string($conn, $sub_code);
+            $ind_safe = mysqli_real_escape_string($conn, $ind_code);
+            $sk_safe  = mysqli_real_escape_string($conn, $section_key_p);
+            $cdoh_sql = $cdoh_score !== null ? $cdoh_score : 'NULL';
+            $ip_sql   = $ip_score   !== null ? $ip_score   : 'NULL';
+            $by_safe  = mysqli_real_escape_string($conn, $_SESSION['full_name'] ?? '');
+            mysqli_query($conn,
+                "INSERT INTO transition_raw_scores
+                 (assessment_id, section_key, indicator_code, sub_indicator_code,
+                  composite_key, cdoh_score, ip_score, comments, scored_by)
+                 VALUES ($assessment_id,'$sk_safe','$ind_safe','$sub_safe',
+                         '$ck_safe',$cdoh_sql,$ip_sql,'$comments','$by_safe')
+                 ON DUPLICATE KEY UPDATE
+                   cdoh_score=VALUES(cdoh_score),ip_score=VALUES(ip_score),
+                   comments=VALUES(comments),scored_at=NOW()");
+
+            // Accumulate for section submissions upsert
+            if (!isset($section_agg[$section_key_p]))
+                $section_agg[$section_key_p] = ['sum_c'=>0,'cnt_c'=>0,'sum_i'=>0,'cnt_i'=>0,'n'=>0];
+            if ($cdoh_score !== null) { $section_agg[$section_key_p]['sum_c']+=$cdoh_score; $section_agg[$section_key_p]['cnt_c']++; }
+            if ($ip_score   !== null) { $section_agg[$section_key_p]['sum_i']+=$ip_score;   $section_agg[$section_key_p]['cnt_i']++; }
+            $section_agg[$section_key_p]['n']++;
+
+            if ($cdoh_score !== null) $total_cdoh += $cdoh_score;
+            if ($ip_score   !== null) $total_ip   += $ip_score;
+            $indicator_count++;
+        }
+
+        // Upsert section_submissions for each section found in POST
+        $period_safe   = mysqli_real_escape_string($conn, $period);
+        $assessed_safe = mysqli_real_escape_string($conn, $assessed_by);
+        foreach ($section_agg as $sk_p => $agg) {
+            $sk_p_safe  = mysqli_real_escape_string($conn, $sk_p);
+            $avg_c_full = $agg['cnt_c'] > 0 ? round($agg['sum_c']/$agg['cnt_c'], 2) : 'NULL';
+            $avg_i_full = $agg['cnt_i'] > 0 ? round($agg['sum_i']/$agg['cnt_i'], 2) : 'NULL';
+            mysqli_query($conn,
+                "INSERT INTO transition_section_submissions
+                 (assessment_id, county_id, assessment_period, section_key,
+                  submitted_by, sub_count, avg_cdoh, avg_ip)
+                 VALUES ($assessment_id,$county_id,'$period_safe','$sk_p_safe',
+                         '$assessed_safe',{$agg['n']},$avg_c_full,$avg_i_full)
+                 ON DUPLICATE KEY UPDATE
+                   county_id=$county_id, assessment_period='$period_safe',
+                   submitted_by='$assessed_safe', submitted_at=NOW(),
+                   sub_count={$agg['n']}, avg_cdoh=$avg_c_full, avg_ip=$avg_i_full");
+        }
+
+        $avg_cdoh  = $indicator_count > 0 ? round(($total_cdoh / ($indicator_count * 4)) * 100) : 0;
+        $avg_ip    = $indicator_count > 0 ? round(($total_ip   / ($indicator_count * 4)) * 100) : 0;
+        $readiness = $avg_cdoh >= 70 ? 'Transition' : ($avg_cdoh >= 50 ? 'Support and Monitor' : 'Not Ready');
+
+        // Mark assessment as submitted (scores live in transition_section_submissions)
+        if (!mysqli_query($conn,
+            "UPDATE transition_assessments SET
+             assessment_status='submitted', readiness_level='$readiness'
+             WHERE assessment_id=$assessment_id")) {
+            throw new Exception("Error updating assessment status: " . mysqli_error($conn));
+        }
+
+        mysqli_commit($conn);
+        $_SESSION['success_msg'] = 'Assessment saved successfully!';
+        header('Location: transition_dashboard.php?county=' . $county_id);
+        exit();
+
+    } catch (Exception $e) {
+        mysqli_rollback($conn);
+        $error = 'Error saving assessment: ' . $e->getMessage();
+    }
+}
+
 // Calculate total indicators for progress tracking
 $total_indicators = 0;
 foreach ($active_sections as $section) {
@@ -1090,875 +1046,1190 @@ foreach ($active_sections as $section) {
     }
 }
 
-// Build section definitions for sidebar
-$section_defs = [];
-foreach ($active_sections as $key => $section) {
-    $section_defs[$key] = $section['title'];
-}
-
-// Helper functions
-function v($key, $existing) { return htmlspecialchars($existing[$key] ?? ''); }
-function sel($key, $val, $existing) { return ($existing[$key] ?? '') === $val ? 'selected' : ''; }
-function chk($key, $val, $existing) { return ($existing[$key] ?? '') === $val ? 'checked' : ''; }
-function is_readonly_attr($is_readonly) { return $is_readonly ? 'readonly disabled' : ''; }
-
-$e_data = $existing ?? [];
-$pre_county_id = (int)($e_data['county_id'] ?? $county_id);
-$pre_county_name = (string)($e_data['county_name'] ?? $county_name);
-$pre_period = (string)($e_data['assessment_period'] ?? $period);
-$show_form = ($edit_id && $existing) || ($pre_county_id && $pre_period && !empty($active_sections));
-
-$page_title = $view_only ? 'View Transition Assessment' : ($edit_id ? 'Edit Assessment' : 'New Assessment');
-
-// Clear output buffer and start HTML output
-ob_end_clean();
+// Build submitted sections data for JS
+$submitted_sections_json = json_encode($submitted_sections);
+$assessment_id_js = (int)$assessment_id;
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?= $page_title ?> - <?= htmlspecialchars($pre_county_name) ?></title>
+    <title>Transition Assessment - <?= htmlspecialchars($county_name) ?></title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
-        :root{
-            --navy:#0D1A63; --navy2:#1a3a9e; --teal:#0ABFBC; --green:#27AE60;
-            --amber:#F5A623; --rose:#E74C3C; --purple:#8B5CF6;
-            --bg:#f0f2f7; --card:#fff; --border:#e2e8f0; --muted:#6B7280;
-            --shadow:0 2px 16px rgba(13,26,99,.08);
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f0f2f7;
+            color: #333;
+            line-height: 1.6;
         }
-        *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
-        body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:var(--bg);color:#1a1e2e;line-height:1.6;}
-        .wrap{max-width:1400px;margin:0 auto;padding:20px;}
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
 
-        /* Header */
-        .page-header{background:linear-gradient(135deg,var(--navy),var(--navy2));color:#fff;padding:20px 28px;
-            border-radius:14px;margin-bottom:22px;display:flex;justify-content:space-between;align-items:center;
-            box-shadow:0 6px 24px rgba(13,26,99,.22);flex-wrap:wrap;gap:15px;}
-        .page-header h1{font-size:1.35rem;font-weight:700;display:flex;align-items:center;gap:10px;}
-        .hdr-links a{color:#fff;text-decoration:none;background:rgba(255,255,255,.15);padding:7px 14px;
-            border-radius:8px;font-size:13px;margin-left:8px;transition:.2s;display:inline-flex;align-items:center;gap:6px;}
-        .hdr-links a:hover{background:rgba(255,255,255,.28);}
+        .page-header {
+            background: linear-gradient(135deg, #0D1A63 0%, #1a3a9e 100%);
+            color: #fff;
+            padding: 22px 30px;
+            border-radius: 14px;
+            margin-bottom: 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 6px 24px rgba(13,26,99,.25);
+        }
+        .page-header h1 {
+            font-size: 1.4rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .page-header .hdr-links a {
+            color: #fff;
+            text-decoration: none;
+            background: rgba(255,255,255,.15);
+            padding: 7px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            margin-left: 8px;
+            transition: background .2s;
+        }
+        .page-header .hdr-links a:hover {
+            background: rgba(255,255,255,.28);
+        }
 
-        /* Layout */
-        .layout{display:grid;grid-template-columns:280px 1fr;gap:22px;align-items:start;}
-        .sidebar{position:sticky;top:16px;background:var(--card);border-radius:14px;
-            box-shadow:var(--shadow);overflow:hidden;max-height:calc(100vh - 40px);display:flex;flex-direction:column;}
-        .sidebar-head{background:linear-gradient(135deg,var(--navy),var(--navy2));color:#fff;
-            padding:14px 18px;font-size:13px;font-weight:700;display:flex;align-items:center;gap:8px;}
-        .sidebar-body{padding:10px 8px;overflow-y:auto;flex:1;}
-        .sec-nav-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:9px;
-            cursor:pointer;transition:.15s;font-size:12px;font-weight:500;color:#444;margin-bottom:2px;}
-        .sec-nav-item:hover{background:#f0f3fb;color:var(--navy);}
-        .sec-nav-item.saved{color:var(--green);}
-        .sec-nav-item.saved .sec-dot{background:var(--green);}
-        .sec-nav-item.unsaved .sec-dot{background:#e5e7eb;}
-        .sec-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;transition:.3s;}
-        .sec-nav-item .sec-icon{font-size:12px;width:16px;text-align:center;}
-        .progress-wrap{padding:12px 16px 14px;border-top:1px solid var(--border);}
-        .progress-label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;display:flex;justify-content:space-between;}
-        .progress-bar-outer{height:8px;background:#e5e7eb;border-radius:99px;overflow:hidden;}
-        .progress-bar-inner{height:100%;background:linear-gradient(90deg,var(--teal),var(--green));border-radius:99px;transition:width .5s;}
+        .alert {
+            padding: 13px 18px;
+            border-radius: 9px;
+            margin-bottom: 18px;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
 
-        /* Section cards */
-        .form-section{background:var(--card);border-radius:14px;margin-bottom:20px;
-            box-shadow:var(--shadow);overflow:hidden;border-left:4px solid var(--navy);scroll-margin-top:20px;}
-        .section-head{background:linear-gradient(90deg,var(--navy),var(--navy2));color:#fff;
-            padding:13px 22px;display:flex;justify-content:space-between;align-items:center;}
-        .section-head-left{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:700;}
-        .section-head-right{display:flex;align-items:center;gap:10px;}
-        .saved-badge{background:rgba(39,174,96,.9);color:#fff;padding:3px 10px;border-radius:20px;
-            font-size:11px;font-weight:700;display:none;}
-        .saved-badge.show{display:inline-flex;align-items:center;gap:5px;}
-        .section-body{padding:22px;}
+        .progress-tracker {
+            background: #fff;
+            border-radius: 14px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 14px rgba(0,0,0,.07);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
 
-        /* Score grid */
-        .score-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:15px;}
-        .score-grid.single{grid-template-columns:1fr;}
-        .score-column{background:#f8f9fc;border-radius:8px;padding:15px;}
-        .score-column h4{font-size:13px;font-weight:700;margin-bottom:15px;display:flex;align-items:center;gap:8px;}
-        .score-column.cdoh h4{color:var(--navy);}
-        .score-column.ip h4{color:#FFC107;}
-        .radio-group{display:flex;gap:10px;flex-wrap:wrap;}
-        .radio-option{flex:1;min-width:60px;}
-        .radio-option input[type="radio"]{display:none;}
-        .radio-option label{display:flex;flex-direction:column;align-items:center;padding:10px 5px;
-            background:#fff;border:2px solid #e0e4f0;border-radius:8px;cursor:pointer;transition:all .2s;}
-        .radio-option input[type="radio"]:checked + label{border-color:var(--color);background:var(--bg-color);}
-        .radio-option .score{font-weight:700;font-size:16px;}
-        .radio-option .label{font-size:9px;text-align:center;color:#666;margin-top:3px;}
-        .level-4{--color:#28a745;--bg-color:#d4edda;}
-        .level-3{--color:#17a2b8;--bg-color:#d1ecf1;}
-        .level-2{--color:#ffc107;--bg-color:#fff3cd;}
-        .level-1{--color:#fd7e14;--bg-color:#ffe5d0;}
-        .level-0{--color:#dc3545;--bg-color:#f8d7da;}
+        .section-tabs {
+            display: flex;
+            gap: 10px;
+            overflow-x: auto;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
 
-        /* Sub-indicator */
-        .sub-indicator{background:#fff;border-radius:10px;padding:15px;margin-bottom:15px;border:1px solid #e0e4f0;}
-        .sub-indicator-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
-        .sub-indicator-code{font-weight:700;color:var(--navy);background:#e8edf8;padding:3px 10px;border-radius:20px;font-size:12px;}
-        .sub-indicator-text{font-size:13px;color:#555;margin-bottom:15px;line-height:1.5;}
-        .comments-section{margin-top:15px;padding-top:15px;border-top:1px dashed #e0e4f0;}
-        .comments-section textarea{width:100%;padding:10px;border:1.5px solid #e0e4f0;border-radius:8px;font-size:12px;resize:vertical;min-height:60px;font-family:inherit;}
-        .comments-section textarea:focus{outline:none;border-color:var(--navy);box-shadow:0 0 0 3px rgba(13,26,99,.08);}
+        .section-tab {
+            padding: 10px 20px;
+            background: #fff;
+            border-radius: 30px;
+            border: 2px solid #e0e4f0;
+            font-size: 13px;
+            font-weight: 600;
+            color: #666;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all .2s;
+        }
 
-        /* Indicator card */
-        .indicator-card{background:#f8fafc;border-radius:12px;padding:20px;margin-bottom:25px;border-left:4px solid var(--color, var(--navy));}
-        .indicator-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;}
-        .indicator-code{background:var(--navy);color:#fff;padding:5px 15px;border-radius:30px;font-weight:700;font-size:14px;}
-        .indicator-title{font-size:16px;font-weight:700;color:var(--navy);margin-bottom:15px;}
+        .section-tab.active {
+            background: #0D1A63;
+            color: #fff;
+            border-color: #0D1A63;
+        }
 
-        /* Form elements */
-        .form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px;}
-        .form-group{margin-bottom:14px;}
-        .form-group label{display:block;margin-bottom:5px;font-weight:600;color:#374151;font-size:13px;}
-        .form-control,.form-select{width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:7px;
-            font-size:13px;transition:.2s;background:#fff;font-family:inherit;}
-        .form-control:focus,.form-select:focus{outline:none;border-color:var(--navy);box-shadow:0 0 0 3px rgba(13,26,99,.08);}
-        .form-control[readonly],.form-select[readonly],.form-control[disabled],.form-select[disabled]{background:#f8f9fc;color:#666;}
+        .section-tab.completed {
+            border-color: #04B04B;
+            background: #d4edda;
+            color: #155724;
+        }
+        .section-tab.incomplete-saved {
+            border-color: #FFC12E;
+            background: #fff8e1;
+            color: #7a5500;
+        }
+        #btnSubmitAll:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            opacity: .7;
+        }
 
-        /* Save button */
-        .btn-save-section{background:var(--teal);color:#fff;border:none;padding:9px 22px;border-radius:8px;
-            font-size:13px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:7px;
-            transition:.2s;margin-top:18px;}
-        .btn-save-section:hover{background:#089e9b;}
-        .btn-save-section.saving{background:#aaa;cursor:not-allowed;}
+        .assessment-form {
+            background: #fff;
+            border-radius: 14px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 14px rgba(0,0,0,.07);
+        }
 
-        /* Submit zone */
-        .submit-zone{background:var(--card);border-radius:14px;padding:22px 28px;box-shadow:var(--shadow);
-            margin-bottom:28px;text-align:center;}
-        .submit-progress{font-size:14px;font-weight:600;color:var(--muted);margin-bottom:14px;}
-        .btn-submit-final{background:linear-gradient(135deg,var(--navy),var(--navy2));color:#fff;
-            padding:14px 44px;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;
-            transition:.2s;display:inline-flex;align-items:center;gap:10px;}
-        .btn-submit-final:hover{transform:translateY(-2px);box-shadow:0 6px 24px rgba(13,26,99,.3);}
-        .btn-submit-final:disabled{background:#aaa;cursor:not-allowed;transform:none;box-shadow:none;}
+        /* Indicator Card Styles */
+        .indicator-card {
+            background: #f8fafc;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 25px;
+            border-left: 4px solid var(--color);
+        }
 
-        /* Toast */
-        .toast{position:fixed;bottom:24px;right:24px;z-index:9999;background:#fff;border-radius:12px;
-            padding:14px 20px;box-shadow:0 8px 32px rgba(0,0,0,.18);display:flex;align-items:center;gap:12px;
-            font-size:13.5px;font-weight:600;transform:translateY(80px);opacity:0;transition:.3s;pointer-events:none;
-            max-width:340px;border-left:4px solid var(--green);}
-        .toast.show{transform:translateY(0);opacity:1;}
-        .toast.error{border-left-color:var(--rose);}
-        .toast-icon{font-size:18px;}
-        .toast.success .toast-icon{color:var(--green);}
-        .toast.error .toast-icon{color:var(--rose);}
+        .indicator-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
 
-        /* Modal */
-        .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;
-            align-items:center;justify-content:center;}
-        .modal-overlay.show{display:flex;}
-        .modal-box{background:#fff;border-radius:16px;width:90%;max-width:560px;box-shadow:0 20px 60px rgba(0,0,0,.25);overflow:hidden;}
-        .modal-head{background:linear-gradient(135deg,var(--navy),var(--navy2));color:#fff;padding:18px 24px;}
-        .modal-head h4{font-size:16px;font-weight:700;display:flex;align-items:center;gap:10px;}
-        .modal-body{padding:22px 24px;font-size:14px;line-height:1.7;}
-        .modal-foot{padding:14px 24px;border-top:1px solid var(--border);display:flex;gap:10px;justify-content:flex-end;}
-        .btn-navy{background:var(--navy);color:#fff;border:none;padding:9px 22px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;}
-        .btn-navy:hover{background:var(--navy2);}
-        .btn-outline{background:none;color:var(--muted);border:1.5px solid var(--border);padding:9px 18px;
-            border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:6px;}
-        .btn-outline:hover{border-color:var(--navy);color:var(--navy);}
-        .sections-status{margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:6px;}
-        .sec-status-item{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600;
-            padding:6px 10px;border-radius:7px;}
-        .sec-status-item.done{background:#d4edda;color:#155724;}
-        .sec-status-item.todo{background:#f8d7da;color:#721c24;}
+        .indicator-code {
+            background: #0D1A63;
+            color: #fff;
+            padding: 5px 15px;
+            border-radius: 30px;
+            font-weight: 700;
+            font-size: 14px;
+        }
 
-        /* IP badge */
-        .ip-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;margin-left:10px;}
-        .ip-badge.yes{background:#FFC107;color:#000;}
-        .ip-badge.no{background:#6c757d;color:#fff;}
+        .indicator-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: #0D1A63;
+            margin-bottom: 15px;
+        }
 
-        /* Setup card */
-        .setup-card{background:var(--card);border-radius:14px;padding:20px 22px;margin-bottom:22px;
-            box-shadow:var(--shadow);border-left:4px solid var(--teal);}
-        .setup-card h3{font-size:13px;font-weight:700;color:var(--navy);text-transform:uppercase;
-            letter-spacing:.7px;margin-bottom:14px;display:flex;align-items:center;gap:8px;}
-        .setup-grid{display:grid;grid-template-columns:1fr 1fr auto;gap:16px;align-items:end;}
-        .setup-field label{display:block;font-size:11px;font-weight:700;color:var(--muted);
-            text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;}
-        .setup-field select{width:100%;padding:10px 13px;border:1.5px solid var(--border);
-            border-radius:8px;font-size:13.5px;transition:.2s;font-family:inherit;background:#fff;}
-        .setup-field select:focus{outline:none;border-color:var(--navy);}
-        .btn-load{background:var(--navy);color:#fff;border:none;padding:10px 22px;border-radius:8px;
-            font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:7px;height:42px;transition:.2s;}
-        .btn-load:hover{background:var(--navy2);}
-        .btn-load:disabled{opacity:0.6;cursor:not-allowed;}
-        .county-card{border:2px solid var(--navy);border-radius:10px;padding:14px 18px;
-            background:linear-gradient(135deg,#f0f3fb,#fff);margin-top:10px;display:none;}
-        .county-card-header{display:flex;justify-content:space-between;align-items:center;}
-        .county-card-name{font-weight:700;color:var(--navy);font-size:15px;display:flex;align-items:center;gap:8px;}
+        .sub-indicator {
+            background: #fff;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 15px;
+            border: 1px solid #e0e4f0;
+        }
 
-        @media(max-width:960px){.layout{grid-template-columns:1fr;}.sidebar{position:static;max-height:none;}}
-        @media(max-width:640px){.score-grid{grid-template-columns:1fr;}.setup-grid{grid-template-columns:1fr;}}
+        .sub-indicator-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .sub-indicator-code {
+            font-weight: 700;
+            color: #0D1A63;
+            background: #e8edf8;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+        }
+
+        .sub-indicator-text {
+            font-size: 13px;
+            color: #555;
+            margin-bottom: 15px;
+            line-height: 1.5;
+        }
+
+        .score-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .score-column {
+            background: #f8f9fc;
+            border-radius: 8px;
+            padding: 15px;
+        }
+
+        .score-column h4 {
+            font-size: 13px;
+            font-weight: 700;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .score-column.cdoh h4 { color: #0D1A63; }
+        .score-column.ip h4 { color: #FFC107; }
+
+        .radio-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .radio-option {
+            flex: 1;
+            min-width: 60px;
+        }
+
+        .radio-option input[type="radio"] {
+            display: none;
+        }
+
+        .radio-option label {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 10px 5px;
+            background: #fff;
+            border: 2px solid #e0e4f0;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all .2s;
+        }
+
+        .radio-option input[type="radio"]:checked + label {
+            border-color: var(--color);
+            background: var(--bg-color);
+        }
+
+        .radio-option .score {
+            font-weight: 700;
+            font-size: 16px;
+        }
+
+        .radio-option .label {
+            font-size: 9px;
+            text-align: center;
+            color: #666;
+            margin-top: 3px;
+        }
+
+        .level-4 { --color: #28a745; --bg-color: #d4edda; }
+        .level-3 { --color: #17a2b8; --bg-color: #d1ecf1; }
+        .level-2 { --color: #ffc107; --bg-color: #fff3cd; }
+        .level-1 { --color: #fd7e14; --bg-color: #ffe5d0; }
+        .level-0 { --color: #dc3545; --bg-color: #f8d7da; }
+
+        .comments-section {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px dashed #e0e4f0;
+        }
+
+        .comments-section textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #e0e4f0;
+            border-radius: 8px;
+            font-size: 12px;
+            resize: vertical;
+        }
+
+        .section-summary {
+            background: #0D1A63;
+            color: #fff;
+            border-radius: 10px;
+            padding: 15px 20px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .summary-badge {
+            background: rgba(255,255,255,.2);
+            padding: 5px 15px;
+            border-radius: 30px;
+            font-weight: 600;
+        }
+
+        .save-progress {
+            position: sticky;
+            bottom: 20px;
+            background: #0D1A63;
+            color: #fff;
+            padding: 15px 25px;
+            border-radius: 50px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 4px 20px rgba(13,26,99,.3);
+            max-width: 400px;
+            margin: 0 auto;
+        }
+
+        .btn-save {
+            background: #fff;
+            color: #0D1A63;
+            border: none;
+            padding: 8px 20px;
+            border-radius: 30px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all .2s;
+        }
+        .btn-save:hover {
+            transform: scale(1.05);
+        }
+
+        .btn-submit {
+            background: #28a745;
+            color: #fff;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all .2s;
+            display: block;
+            margin: 30px auto;
+        }
+        .btn-submit:hover {
+            background: #218838;
+            transform: translateY(-2px);
+        }
+
+        .progress-indicator {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .progress-bar {
+            width: 200px;
+            height: 8px;
+            background: #e0e4f0;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            background: #28a745;
+            border-radius: 10px;
+            transition: width 0.3s;
+        }
+
+        .ip-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+        .ip-badge.yes {
+            background: #FFC107;
+            color: #000;
+        }
+        .ip-badge.no {
+            background: #6c757d;
+            color: #fff;
+        }
+
+        /* -- Section save button -- */
+        .section-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 2px solid #e0e4f0;
+        }
+        .btn-save-section {
+            background: #0D1A63;
+            color: #fff;
+            border: none;
+            padding: 11px 26px;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all .2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .btn-save-section:hover { background: #1a3a9e; transform: translateY(-1px); }
+        .btn-save-section.saving { opacity: .65; cursor: wait; }
+
+        /* Submitted tag inside section header */
+        .submitted-tag {
+            background: rgba(39,174,96,.25);
+            border: 1px solid rgba(39,174,96,.4);
+            color: #d4edda;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        /* -- Already-submitted Modal -- */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,.55);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-overlay.show { display: flex; }
+        .modal-box {
+            background: #fff;
+            border-radius: 16px;
+            padding: 34px 32px;
+            max-width: 460px;
+            width: 92%;
+            box-shadow: 0 24px 64px rgba(0,0,0,.22);
+            text-align: center;
+        }
+        .modal-icon { font-size: 52px; margin-bottom: 14px; }
+        .modal-box h3 { font-size: 20px; font-weight: 800; color: #0D1A63; margin-bottom: 10px; }
+        .modal-box p  { color: #555; font-size: 14px; line-height: 1.6; margin-bottom: 6px; }
+        .modal-info {
+            background: #f0f4ff;
+            border-radius: 10px;
+            padding: 12px 16px;
+            margin: 14px 0;
+            font-size: 13px;
+            text-align: left;
+            line-height: 1.8;
+        }
+        .modal-info strong { color: #0D1A63; }
+        .modal-actions { display: flex; gap: 12px; justify-content: center; margin-top: 22px; }
+        .modal-btn {
+            padding: 11px 26px;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 14px;
+            cursor: pointer;
+            border: none;
+            transition: all .2s;
+        }
+        .modal-btn-yes { background: #0D1A63; color: #fff; }
+        .modal-btn-yes:hover { background: #1a3a9e; }
+        .modal-btn-no  { background: #e0e4f0; color: #333; }
+        .modal-btn-no:hover { background: #d0d4e0; }
     </style>
 </head>
 <body>
-<div class="wrap">
-
-<!-- Header -->
-<div class="page-header">
-    <h1><i class="fas fa-clipboard-check"></i> <?= $page_title ?></h1>
-    <div class="hdr-links">
-        <a href="transition_dashboard.php"><i class="fas fa-chart-bar"></i> Dashboard</a>
-        <a href="transition_index.php"><i class="fas fa-home"></i> Home</a>
-        <?php if ($edit_id): ?>
-        <span style="background:rgba(255,255,255,.2);padding:7px 14px;border-radius:8px;font-size:13px;">
-            <?= $view_only ? 'Viewing' : 'Editing' ?> #<?= $edit_id ?>
-        </span>
-        <?php endif; ?>
-    </div>
-</div>
-
-<div id="globalAlert"></div>
-
-<!-- Setup Card (only show when starting new) -->
-<?php if (!$edit_id): ?>
-<div class="setup-card">
-    <h3><i class="fas fa-cog"></i> Select County and Assessment Period</h3>
-    <div class="setup-grid">
-        <div class="setup-field">
-            <label>County <span style="color:var(--rose)">*</span></label>
-            <select id="countySelect">
-                <option value="">Select County</option>
-                <?php
-                $counties_r = mysqli_query($conn, "SELECT county_id, county_name, county_code FROM counties ORDER BY county_name");
-                while ($c = mysqli_fetch_assoc($counties_r)):
-                ?>
-                <option value="<?= $c['county_id'] ?>" data-name="<?= htmlspecialchars($c['county_name']) ?>"
-                    <?= $pre_county_id==$c['county_id']?'selected':'' ?>>
-                    <?= htmlspecialchars($c['county_name']) ?> (<?= $c['county_code'] ?>)
-                </option>
-                <?php endwhile; ?>
-            </select>
-        </div>
-        <div class="setup-field">
-            <label>Assessment Period <span style="color:var(--rose)">*</span></label>
-            <select id="periodSelect">
-                <option value="">Select Period</option>
-                <?php
-                $periods = ['Oct-Dec 2025','Jan-Mar 2026','Apr-Jun 2026','Jul-Sep 2026','Oct-Dec 2026'];
-                foreach ($periods as $p): ?>
-                <option value="<?= $p ?>" <?= $pre_period===$p?'selected':'' ?>><?= $p ?></option>
-                <?php endforeach; ?>
-            </select>
-        </div>
-        <div>
-            <button class="btn-load" id="btnLoad" onclick="loadAssessment()">
-                <i class="fas fa-arrow-right"></i> Load or Start
-            </button>
+<div class="container">
+    <div class="page-header">
+        <h1>
+            <i class="fas fa-clipboard-check"></i>
+            Transition Assessment: <?= htmlspecialchars($county_name) ?>
+        </h1>
+        <div class="hdr-links">
+            <a href="transition_index.php"><i class="fas fa-arrow-left"></i> Back to Sections</a>
+            <a href="transition_dashboard.php"><i class="fas fa-chart-bar"></i> Dashboard</a>
         </div>
     </div>
 
-    <div class="county-card" id="countyCard" <?= ($pre_county_id && $pre_period && $show_form) ? 'style="display:block"' : '' ?>>
-        <div class="county-card-header">
-            <div class="county-card-name">
-                <i class="fas fa-map-marker-alt" style="color:var(--teal)"></i>
-                <span id="cc_name"><?= htmlspecialchars($pre_county_name) ?></span>
+    <?php if (isset($error)): ?>
+    <div class="alert alert-error"><i class="fas fa-exclamation-triangle"></i> <?= htmlspecialchars($error) ?></div>
+    <?php endif; ?>
+
+    <form method="POST" id="assessmentForm">
+        <input type="hidden" name="save_assessment" value="1">
+        <input type="hidden" name="assessment_date" value="<?= date('Y-m-d') ?>">
+
+        <!-- Progress Tracker -->
+        <div class="progress-tracker">
+            <div>
+                <p style="color: #666; font-size: 13px;">
+                    <i class="fas fa-calendar"></i> Period: <?= htmlspecialchars($period) ?> |
+                    <i class="fas fa-layer-group"></i> Sections: <?= count($active_sections) ?> |
+                    <i class="fas fa-tasks"></i> Total Indicators: <span id="totalIndicators"><?= $total_indicators ?></span>
+                </p>
             </div>
-            <span id="cc_period" style="background:#e8edf8;color:var(--navy);padding:3px 12px;border-radius:20px;font-size:12px;font-weight:700">
-                <?= htmlspecialchars($pre_period) ?>
-            </span>
-        </div>
-    </div>
-</div>
-<?php endif; ?>
-
-<!-- Hidden fields -->
-<input type="hidden" id="h_assessment_id" value="<?= $assessment_id ?>">
-<input type="hidden" id="h_county_id" value="<?= $pre_county_id ?>">
-<input type="hidden" id="h_period" value="<?= htmlspecialchars($pre_period) ?>">
-<input type="hidden" id="h_county_name" value="<?= htmlspecialchars($pre_county_name) ?>">
-
-<?php if ($show_form): ?>
-<div class="layout">
-
-<!-- Sidebar -->
-<aside class="sidebar">
-    <div class="sidebar-head"><i class="fas fa-tasks"></i> Assessment Progress</div>
-    <div class="sidebar-body" id="sidebarNav">
-        <?php foreach ($section_defs as $sk => $sl):
-            $saved = in_array($sk, $sections_saved);
-        ?>
-        <div class="sec-nav-item <?= $saved?'saved':'unsaved' ?>" data-section="<?= $sk ?>"
-             onclick="scrollToSection('<?= $sk ?>')">
-            <span class="sec-dot"></span>
-            <span class="sec-icon"><i class="fas <?= $saved?'fa-check-circle':'fa-circle' ?>"></i></span>
-            <span><?= $sl ?></span>
-        </div>
-        <?php endforeach; ?>
-    </div>
-    <div class="progress-wrap">
-        <div class="progress-label"><span>Progress</span><span id="progressPct">0%</span></div>
-        <div class="progress-bar-outer"><div class="progress-bar-inner" id="progressBar" style="width:0%"></div></div>
-    </div>
-</aside>
-
-<!-- Main Form -->
-<div id="mainForm">
-
-<?php foreach ($active_sections as $key => $section): ?>
-<div class="form-section" id="sec_<?= $key ?>">
-    <div class="section-head">
-        <div class="section-head-left">
-            <i class="fas <?= $section['icon'] ?? 'fa-file' ?>"></i> <?= $section['title'] ?>
-        </div>
-        <div class="section-head-right">
-            <?php if (!$section['has_ip']): ?>
-            <span class="ip-badge no">CDOH Only</span>
-            <?php elseif (preg_match('/^IO/', array_key_first($section['indicators']))): ?>
-            <span class="ip-badge yes">CDOH + IP</span>
-            <?php else: ?>
-            <span class="ip-badge" style="background:#e0e8ff;color:var(--navy);">A=IP / B=CDOH</span>
-            <?php endif; ?>
-            <span class="saved-badge <?= in_array($key,$sections_saved)?'show':'' ?>" id="badge_<?= $key ?>">
-                <i class="fas fa-check"></i> Saved
-            </span>
-        </div>
-    </div>
-    <div class="section-body">
-        <?php foreach ($section['indicators'] as $indicator_code => $indicator): ?>
-        <div class="indicator-card" style="--color: <?= $section['color'] ?? '#0D1A63' ?>">
-            <div class="indicator-header">
-                <span class="indicator-code"><?= $indicator_code ?></span>
-                <span style="font-size:12px;color:#666;"><?= count($indicator['sub_indicators']) ?> sub-indicators</span>
+            <div class="progress-indicator">
+                <span style="font-size: 13px; color: #666;">Overall Progress</span>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="overallProgress" style="width: 0%;"></div>
+                </div>
+                <span id="progressPercent" style="font-weight: 700; color: #0D1A63;">0%</span>
             </div>
-            <div class="indicator-title"><?= $indicator['name'] ?></div>
+        </div>
 
-            <?php foreach ($indicator['sub_indicators'] as $sub_code => $sub_text):
-                $composite_key = $key . '_' . $indicator_code . '_' . $sub_code;
-                $ex = $existing_raw[$composite_key] ?? [];
-
-                $is_ip_only      = (bool)preg_match('/^T\d+A/', $indicator_code);
-                $is_cdoh_b       = (bool)preg_match('/^T\d+B/', $indicator_code);
-                $is_leadership   = in_array($indicator_code, ['T1','T2']);
-                $is_planning     = ($indicator_code === 'T3');
-                $is_io           = (bool)preg_match('/^IO/', $indicator_code);
-
-                $labels_ip       = [4=>'Dominates',3=>'Supportive',2=>'Involved',1=>'Partial',0=>'Not involved'];
-                $labels_autonomy = [4=>'Independent',3=>'Mostly indep.',2=>'Not indep.',1=>'Minimally',0=>'Not involved'];
-                $labels_adequacy = [4=>'Fully',3=>'Partially',2=>'Some evid.',1=>'No evid.',0=>'Inadequate'];
-                $labels_io       = [4=>'Complete',3=>'Most',2=>'About half',1=>'Few',0=>'No/N/A'];
+        <!-- Section Tabs -->
+        <div class="section-tabs" id="sectionTabs">
+            <?php
+            $index = 1;
+            foreach ($active_sections as $key => $section):
             ?>
-            <div class="sub-indicator">
-                <div class="sub-indicator-header">
-                    <span class="sub-indicator-code"><?= $sub_code ?></span>
-                </div>
-                <div class="sub-indicator-text"><?= $sub_text ?></div>
+            <div class="section-tab" id="tab_<?= $key ?>" data-section="<?= $key ?>" onclick="handleTabClick('<?= $key ?>')">
+                <i class="fas <?= $section['icon'] ?? 'fa-file' ?>"></i> <?= $section['title'] ?>
+            </div>
+            <?php
+            $index++;
+            endforeach;
+            ?>
+        </div>
 
-                <?php if ($is_ip_only): ?>
-                <!-- IP score only -->
-                <div class="score-grid single">
-                    <div class="score-column ip">
-                        <h4><i class="fas fa-handshake"></i> IP Involvement Score</h4>
-                        <div class="radio-group">
-                            <?php foreach ($scoring_criteria as $score => $criteria): ?>
-                            <div class="radio-option <?= $criteria['class'] ?>">
-                                <input type="radio"
-                                       name="scores[<?= $composite_key ?>][ip]"
-                                       value="<?= $score ?>"
-                                       id="ip_<?= $composite_key ?>_<?= $score ?>"
-                                       <?= isset($ex['ip_score']) && $ex['ip_score'] !== null && (string)$ex['ip_score'] === (string)$score ? 'checked' : '' ?>
-                                       <?= is_readonly_attr($is_readonly) ?>>
-                                <label for="ip_<?= $composite_key ?>_<?= $score ?>">
-                                    <span class="score"><?= $score ?></span>
-                                    <span class="label"><?= $labels_ip[$score] ?></span>
-                                </label>
-                            </div>
-                            <?php endforeach; ?>
-                        </div>
+        <!-- Assessment Forms Container -->
+        <div id="formsContainer">
+            <?php
+            foreach ($active_sections as $key => $section):
+                $section_total = 0;
+                foreach ($section['indicators'] as $indicator) {
+                    $section_total += count($indicator['sub_indicators']);
+                }
+            ?>
+            <!-- Section wrapper: hidden until tab clicked -->
+            <div class="assessment-form" id="form_<?= $key ?>" style="display:none;"
+                 data-section="<?= $key ?>" data-total="<?= $section_total ?>">
+                <div class="section-summary">
+                    <div>
+                        <i class="fas <?= $section['icon'] ?? 'fa-file' ?>"></i>
+                        <strong><?= $section['title'] ?></strong>
+                        <?php if (!$section['has_ip']): ?>
+                        <span class="ip-badge no">CDOH Only</span>
+                        <?php elseif (preg_match('/^IO/', array_key_first($section['indicators']))): ?>
+                        <span class="ip-badge yes">CDOH + IP</span>
+                        <?php else: ?>
+                        <span class="ip-badge" style="background:#e0e8ff;color:#0D1A63;">A=IP ? B=CDOH</span>
+                        <?php endif; ?>
+                    </div>
+                    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                        <?php if (isset($submitted_sections[$key])): $ss = $submitted_sections[$key]; ?>
+                        <span class="submitted-tag" id="stag_<?= $key ?>">
+                            <i class="fas fa-check-circle"></i>
+                            Submitted <?= date('d M Y H:i', strtotime($ss['submitted_at'])) ?>
+                            &nbsp;?&nbsp; <?= $ss['sub_count'] ?> indicators
+                            <?php if ($ss['avg_cdoh'] !== null): ?>
+                            &nbsp;?&nbsp; CDOH: <?= round($ss['avg_cdoh']/4*100) ?>%
+                            <?php endif; ?>
+                        </span>
+                        <?php else: ?>
+                        <span class="submitted-tag" id="stag_<?= $key ?>" style="display:none"></span>
+                        <?php endif; ?>
+                        <div class="summary-badge" id="section_progress_<?= $key ?>">0% Complete</div>
                     </div>
                 </div>
 
-                <?php elseif ($is_cdoh_b || $is_planning): ?>
-                <!-- CDOH score only, autonomy labels -->
-                <div class="score-grid single">
-                    <div class="score-column cdoh">
-                        <h4><i class="fas fa-building"></i> CDOH Autonomy Score</h4>
-                        <div class="radio-group">
-                            <?php foreach ($scoring_criteria as $score => $criteria): ?>
-                            <div class="radio-option <?= $criteria['class'] ?>">
-                                <input type="radio"
-                                       name="scores[<?= $composite_key ?>][cdoh]"
-                                       value="<?= $score ?>"
-                                       id="cdoh_<?= $composite_key ?>_<?= $score ?>"
-                                       <?= isset($ex['cdoh_score']) && (string)$ex['cdoh_score'] === (string)$score ? 'checked' : '' ?>
-                                       <?= is_readonly_attr($is_readonly) ?>>
-                                <label for="cdoh_<?= $composite_key ?>_<?= $score ?>">
-                                    <span class="score"><?= $score ?></span>
-                                    <span class="label"><?= $labels_autonomy[$score] ?></span>
-                                </label>
-                            </div>
-                            <?php endforeach; ?>
-                        </div>
-                    </div>
+                <!-- Proceed overlay (shown by default, hidden after clicking Proceed) -->
+                <div class="section-proceed-overlay" id="overlay_<?= $key ?>">
+                    <i class="fas fa-clipboard-list" style="font-size:2.5rem;color:#2D008A;opacity:.7"></i>
+                    <h3><i class="fas <?= $section['icon'] ?? 'fa-file' ?>"></i> <?= htmlspecialchars($section['title']) ?></h3>
+                    <p><?= $section_total ?> sub-indicators to score &nbsp;&bull;&nbsp; <?= $section['has_ip'] ? 'CDOH + IP scoring' : 'CDOH scoring only' ?></p>
+                    <?php if (isset($submitted_sections[$key])): ?>
+                    <p style="color:#856404;background:#fff3cd;padding:8px 16px;border-radius:8px;font-size:12px;">
+                        <i class="fas fa-history"></i> Previously saved â€” <?= $submitted_sections[$key]['sub_count'] ?> indicators
+                    </p>
+                    <?php endif; ?>
+                    <button class="btn-proceed" onclick="proceedToFill('<?= $key ?>')">
+                        <i class="fas fa-arrow-right"></i> Proceed to Fill Questions
+                    </button>
                 </div>
 
-                <?php elseif ($is_leadership): ?>
-                <!-- CDOH score only, adequacy labels -->
-                <div class="score-grid single">
-                    <div class="score-column cdoh">
-                        <h4><i class="fas fa-building"></i> CDOH Score</h4>
-                        <div class="radio-group">
-                            <?php foreach ($scoring_criteria as $score => $criteria): ?>
-                            <div class="radio-option <?= $criteria['class'] ?>">
-                                <input type="radio"
-                                       name="scores[<?= $composite_key ?>][cdoh]"
-                                       value="<?= $score ?>"
-                                       id="cdoh_<?= $composite_key ?>_<?= $score ?>"
-                                       <?= isset($ex['cdoh_score']) && (string)$ex['cdoh_score'] === (string)$score ? 'checked' : '' ?>
-                                       <?= is_readonly_attr($is_readonly) ?>>
-                                <label for="cdoh_<?= $composite_key ?>_<?= $score ?>">
-                                    <span class="score"><?= $score ?></span>
-                                    <span class="label"><?= $labels_adequacy[$score] ?></span>
-                                </label>
+                <!-- Questions area (hidden until Proceed clicked) -->
+                <div id="questions_<?= $key ?>" style="display:none;" data-open="0">
+
+                <?php foreach ($section['indicators'] as $indicator_code => $indicator): ?>
+                <div class="indicator-card" style="--color: <?= $section['color'] ?? '#0D1A63' ?>">
+                    <div class="indicator-header">
+                        <span class="indicator-code"><?= $indicator_code ?></span>
+                        <span style="font-size: 12px; color: #666;"><?= count($indicator['sub_indicators']) ?> sub-indicators</span>
+                    </div>
+                    <div class="indicator-title"><?= $indicator['name'] ?></div>
+
+                    <?php foreach ($indicator['sub_indicators'] as $sub_code => $sub_text):
+                        $indicator_key = $key . '_' . $indicator_code . '_' . $sub_code;
+                        $ex = $existing_raw[$indicator_key] ?? [];
+
+                        // Determine which score column(s) to show based on indicator_code:
+                        // T_A = IP only | T_B = CDOH only (autonomy) | T1/T2 = CDOH only (adequacy)
+                        // T3 = CDOH only (autonomy labels) | IO = CDOH only (component labels, no IP)
+                        $is_ip_only      = (bool)preg_match('/^T\d+A/', $indicator_code);
+                        $is_cdoh_b       = (bool)preg_match('/^T\d+B/', $indicator_code);
+                        $is_leadership   = in_array($indicator_code, ['T1','T2']);
+                        $is_planning     = ($indicator_code === 'T3');
+                        $is_io           = (bool)preg_match('/^IO/', $indicator_code);
+
+                        $labels_ip       = [4=>'Dominates',3=>'Supportive',2=>'Involved',1=>'Partial',0=>'Not involved'];
+                        $labels_autonomy = [4=>'Independent',3=>'Mostly indep.',2=>'Not indep.',1=>'Minimally',0=>'Not involved'];
+                        $labels_adequacy = [4=>'Fully',3=>'Partially',2=>'Some evid.',1=>'No evid.',0=>'Inadequate'];
+                        $labels_io       = [4=>'Complete',3=>'Most',2=>'About half',1=>'Few',0=>'No/N/A'];
+                    ?>
+                    <div class="sub-indicator">
+                        <div class="sub-indicator-header">
+                            <span class="sub-indicator-code"><?= $sub_code ?></span>
+                        </div>
+                        <div class="sub-indicator-text"><?= $sub_text ?></div>
+
+                        <?php if ($is_ip_only): ?>
+                        <!-- IP score only (A-type indicators) -->
+                        <div class="score-grid" style="grid-template-columns:1fr;">
+                            <div class="score-column ip">
+                                <h4><i class="fas fa-handshake"></i> IP Involvement Score</h4>
+                                <div class="radio-group">
+                                    <?php foreach ($scoring_criteria as $score => $criteria): ?>
+                                    <div class="radio-option <?= $criteria['class'] ?>">
+                                        <input type="radio"
+                                               name="scores[<?= $indicator_key ?>][ip]"
+                                               value="<?= $score ?>"
+                                               id="ip_<?= $indicator_key ?>_<?= $score ?>"
+                                               data-section="<?= $key ?>"
+                                               onchange="updateProgress()"
+                                               <?= isset($ex['ip_score']) && $ex['ip_score'] !== null && (string)$ex['ip_score'] === (string)$score ? 'checked' : '' ?>>
+                                        <label for="ip_<?= $indicator_key ?>_<?= $score ?>">
+                                            <span class="score"><?= $score ?></span>
+                                            <span class="label"><?= $labels_ip[$score] ?></span>
+                                        </label>
+                                    </div>
+                                    <?php endforeach; ?>
+                                </div>
                             </div>
-                            <?php endforeach; ?>
+                        </div>
+
+                        <?php elseif ($is_cdoh_b || $is_planning): ?>
+                        <!-- CDOH score only, autonomy labels (B-type + T3) -->
+                        <div class="score-grid" style="grid-template-columns:1fr;">
+                            <div class="score-column cdoh">
+                                <h4><i class="fas fa-building"></i> CDOH Autonomy Score</h4>
+                                <div class="radio-group">
+                                    <?php foreach ($scoring_criteria as $score => $criteria): ?>
+                                    <div class="radio-option <?= $criteria['class'] ?>">
+                                        <input type="radio"
+                                               name="scores[<?= $indicator_key ?>][cdoh]"
+                                               value="<?= $score ?>"
+                                               id="cdoh_<?= $indicator_key ?>_<?= $score ?>"
+                                               data-section="<?= $key ?>"
+                                               onchange="updateProgress()"
+                                               <?= isset($ex['cdoh_score']) && (string)$ex['cdoh_score'] === (string)$score ? 'checked' : '' ?>>
+                                        <label for="cdoh_<?= $indicator_key ?>_<?= $score ?>">
+                                            <span class="score"><?= $score ?></span>
+                                            <span class="label"><?= $labels_autonomy[$score] ?></span>
+                                        </label>
+                                    </div>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                        </div>
+
+                        <?php elseif ($is_leadership): ?>
+                        <!-- CDOH score only, adequacy labels (T1, T2) -->
+                        <div class="score-grid" style="grid-template-columns:1fr;">
+                            <div class="score-column cdoh">
+                                <h4><i class="fas fa-building"></i> CDOH Score</h4>
+                                <div class="radio-group">
+                                    <?php foreach ($scoring_criteria as $score => $criteria): ?>
+                                    <div class="radio-option <?= $criteria['class'] ?>">
+                                        <input type="radio"
+                                               name="scores[<?= $indicator_key ?>][cdoh]"
+                                               value="<?= $score ?>"
+                                               id="cdoh_<?= $indicator_key ?>_<?= $score ?>"
+                                               data-section="<?= $key ?>"
+                                               onchange="updateProgress()"
+                                               <?= isset($ex['cdoh_score']) && (string)$ex['cdoh_score'] === (string)$score ? 'checked' : '' ?>>
+                                        <label for="cdoh_<?= $indicator_key ?>_<?= $score ?>">
+                                            <span class="score"><?= $score ?></span>
+                                            <span class="label"><?= $labels_adequacy[$score] ?></span>
+                                        </label>
+                                    </div>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                        </div>
+
+                        <?php elseif ($is_io): ?>
+                        <!-- IO: CDOH only with component labels (no IP column) -->
+                        <div class="score-grid" style="grid-template-columns:1fr;">
+                            <div class="score-column cdoh">
+                                <h4><i class="fas fa-building"></i> CDOH Score</h4>
+                                <div class="radio-group">
+                                    <?php foreach ($scoring_criteria as $score => $criteria): ?>
+                                    <div class="radio-option <?= $criteria['class'] ?>">
+                                        <input type="radio"
+                                               name="scores[<?= $indicator_key ?>][cdoh]"
+                                               value="<?= $score ?>"
+                                               id="cdoh_<?= $indicator_key ?>_<?= $score ?>"
+                                               data-section="<?= $key ?>"
+                                               onchange="updateProgress()"
+                                               <?= isset($ex['cdoh_score']) && (string)$ex['cdoh_score'] === (string)$score ? 'checked' : '' ?>>
+                                        <label for="cdoh_<?= $indicator_key ?>_<?= $score ?>">
+                                            <span class="score"><?= $score ?></span>
+                                            <span class="label"><?= $labels_io[$score] ?></span>
+                                        </label>
+                                    </div>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                        </div>
+
+                        <?php else: ?>
+                        <!-- Fallback: CDOH only, adequacy labels -->
+                        <div class="score-grid" style="grid-template-columns:1fr;">
+                            <div class="score-column cdoh">
+                                <h4><i class="fas fa-building"></i> CDOH Score</h4>
+                                <div class="radio-group">
+                                    <?php foreach ($scoring_criteria as $score => $criteria): ?>
+                                    <div class="radio-option <?= $criteria['class'] ?>">
+                                        <input type="radio"
+                                               name="scores[<?= $indicator_key ?>][cdoh]"
+                                               value="<?= $score ?>"
+                                               id="cdoh_<?= $indicator_key ?>_<?= $score ?>"
+                                               data-section="<?= $key ?>"
+                                               onchange="updateProgress()"
+                                               <?= isset($ex['cdoh_score']) && (string)$ex['cdoh_score'] === (string)$score ? 'checked' : '' ?>>
+                                        <label for="cdoh_<?= $indicator_key ?>_<?= $score ?>">
+                                            <span class="score"><?= $score ?></span>
+                                            <span class="label"><?= $labels_adequacy[$score] ?></span>
+                                        </label>
+                                    </div>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                        </div>
+                        <?php endif; ?>
+
+                        <!-- Comments Section -->
+                        <div class="comments-section">
+                            <textarea name="scores[<?= $indicator_key ?>][comments]"
+                                      placeholder="Add comments or verification notes for this indicator..."
+                                      rows="2"><?= htmlspecialchars($ex['comments'] ?? '') ?></textarea>
                         </div>
                     </div>
+                    <?php endforeach; ?>
+                </div>
+                <?php endforeach; ?>
+
+                </div><!-- /questions_<?= $key ?> -->
+
+                <!-- Section-level comment (bound to transition_comments) -->
+                <div style="margin:16px 0 0;padding:14px 18px;background:#fffbef;border:1px solid #ffe082;border-radius:10px;">
+                    <label style="font-size:12px;font-weight:700;color:#7a5500;display:block;margin-bottom:6px;">
+                        <i class="fas fa-comment-alt"></i> Section Comment / Follow-up Notes
+                    </label>
+                    <textarea name="section_comment" id="sec_comment_<?= $key ?>"
+                              placeholder="Add general comments, observations, or follow-up notes for this section..."
+                              rows="2"
+                              style="width:100%;padding:8px 12px;border:1px solid #ffe082;border-radius:8px;font-size:13px;resize:vertical;font-family:inherit;"><?= htmlspecialchars($section_comments[$key] ?? '') ?></textarea>
                 </div>
 
-                <?php elseif ($is_io): ?>
-                <!-- IO: both CDOH and IP -->
-                <div class="score-grid">
-                    <div class="score-column cdoh">
-                        <h4><i class="fas fa-building"></i> CDOH Score</h4>
-                        <div class="radio-group">
-                            <?php foreach ($scoring_criteria as $score => $criteria): ?>
-                            <div class="radio-option <?= $criteria['class'] ?>">
-                                <input type="radio"
-                                       name="scores[<?= $composite_key ?>][cdoh]"
-                                       value="<?= $score ?>"
-                                       id="cdoh_<?= $composite_key ?>_<?= $score ?>"
-                                       <?= isset($ex['cdoh_score']) && (string)$ex['cdoh_score'] === (string)$score ? 'checked' : '' ?>
-                                       <?= is_readonly_attr($is_readonly) ?>>
-                                <label for="cdoh_<?= $composite_key ?>_<?= $score ?>">
-                                    <span class="score"><?= $score ?></span>
-                                    <span class="label"><?= $labels_io[$score] ?></span>
-                                </label>
-                            </div>
-                            <?php endforeach; ?>
-                        </div>
-                    </div>
-                    <div class="score-column ip">
-                        <h4><i class="fas fa-handshake"></i> IP Score</h4>
-                        <div class="radio-group">
-                            <?php foreach ($scoring_criteria as $score => $criteria): ?>
-                            <div class="radio-option <?= $criteria['class'] ?>">
-                                <input type="radio"
-                                       name="scores[<?= $composite_key ?>][ip]"
-                                       value="<?= $score ?>"
-                                       id="ip_<?= $composite_key ?>_<?= $score ?>"
-                                       <?= isset($ex['ip_score']) && $ex['ip_score'] !== null && (string)$ex['ip_score'] === (string)$score ? 'checked' : '' ?>
-                                       <?= is_readonly_attr($is_readonly) ?>>
-                                <label for="ip_<?= $composite_key ?>_<?= $score ?>">
-                                    <span class="score"><?= $score ?></span>
-                                    <span class="label"><?= $labels_io[$score] ?></span>
-                                </label>
-                            </div>
-                            <?php endforeach; ?>
-                        </div>
-                    </div>
-                </div>
-
-                <?php else: ?>
-                <!-- Fallback: CDOH only -->
-                <div class="score-grid single">
-                    <div class="score-column cdoh">
-                        <h4><i class="fas fa-building"></i> CDOH Score</h4>
-                        <div class="radio-group">
-                            <?php foreach ($scoring_criteria as $score => $criteria): ?>
-                            <div class="radio-option <?= $criteria['class'] ?>">
-                                <input type="radio"
-                                       name="scores[<?= $composite_key ?>][cdoh]"
-                                       value="<?= $score ?>"
-                                       id="cdoh_<?= $composite_key ?>_<?= $score ?>"
-                                       <?= isset($ex['cdoh_score']) && (string)$ex['cdoh_score'] === (string)$score ? 'checked' : '' ?>
-                                       <?= is_readonly_attr($is_readonly) ?>>
-                                <label for="cdoh_<?= $composite_key ?>_<?= $score ?>">
-                                    <span class="score"><?= $score ?></span>
-                                    <span class="label"><?= $labels_adequacy[$score] ?></span>
-                                </label>
-                            </div>
-                            <?php endforeach; ?>
-                        </div>
-                    </div>
-                </div>
-                <?php endif; ?>
-
-                <!-- Comments -->
-                <div class="comments-section">
-                    <textarea name="scores[<?= $composite_key ?>][comments]"
-                              placeholder="Add comments or verification notes for this indicator..."
-                              rows="2" <?= is_readonly_attr($is_readonly) ?>><?= htmlspecialchars($ex['comments'] ?? '') ?></textarea>
+                <!-- Save This Section button -->
+                <div class="section-actions">
+                    <button type="button" class="btn-save-section" id="btn_save_<?= $key ?>"
+                            onclick="saveSection('<?= $key ?>')"
+                            data-total="<?= $section_total ?>">
+                        <i class="fas fa-save"></i> Save This Section
+                    </button>
+                    <span class="section-completion-hint" id="hint_<?= $key ?>" style="font-size:12px;color:#666;margin-left:12px;"></span>
                 </div>
             </div>
             <?php endforeach; ?>
         </div>
-        <?php endforeach; ?>
 
-        <?php if (!$is_readonly): ?>
-        <button type="button" class="btn-save-section" onclick="saveSection('<?= $key ?>')">
-            <i class="fas fa-save"></i> Save This Section
+        <!-- Save & Submit -->
+        <button type="submit" class="btn-submit" id="btnSubmitAll" disabled title="Save all sections first">
+            <i class="fas fa-save"></i> Save Assessment
         </button>
-        <?php endif; ?>
+        <p id="submitHint" style="text-align:center;font-size:12px;color:#999;margin-top:6px;">All sections must be saved (100%) before submitting</p>
+    </form>
+
+    <!-- Save Progress Bar -->
+    <div class="save-progress">
+        <span><i class="fas fa-sync-alt fa-spin" id="saveSpinner" style="display: none;"></i> <span id="saveStatus">All changes saved</span></span>
+        <span id="completionBadge" style="background: rgba(255,255,255,.2); padding: 5px 15px; border-radius: 30px;">0% complete</span>
     </div>
 </div>
+
+<!-- Already-submitted modal -->
+<div class="modal-overlay" id="sectionModal">
+    <div class="modal-box">
+        <div class="modal-icon">??</div>
+        <h3>Section Already Submitted</h3>
+        <p>This section has already been filled for:</p>
+        <div class="modal-info">
+            <strong>County:</strong> <?= htmlspecialchars($county_name) ?><br>
+            <strong>Period:</strong> <?= htmlspecialchars($period) ?><br>
+            <strong>Submitted:</strong> <span id="modalDate">?</span><br>
+            <strong>Indicators scored:</strong> <span id="modalCount">?</span><br>
+            <strong>CDOH Score:</strong> <span id="modalCdoh">?</span>
+        </div>
+        <p>Would you like to <strong>fill another sheet</strong> (update this section)?</p>
+        <div class="modal-actions">
+            <button class="modal-btn modal-btn-yes" onclick="proceedToSection()">
+                <i class="fas fa-edit"></i> Yes, Fill Again
+            </button>
+            <button class="modal-btn modal-btn-no" onclick="closeModal()">
+                <i class="fas fa-times"></i> Cancel
+            </button>
+        </div>
+    </div>
+</div>
+
+<style>
+/* Unanswered question highlight */
+.sub-indicator.unanswered { border-left: 4px solid #E41E39 !important; background: #fff5f5 !important; }
+.sub-indicator.unanswered .sub-indicator-code { color: #E41E39; }
+/* Section proceed overlay */
+.section-proceed-overlay {
+    background: #fff; border-radius: 12px; padding: 32px;
+    text-align: center; margin: 12px 0;
+    border: 2px dashed #c0caff; display: flex; flex-direction: column;
+    align-items: center; gap: 14px;
+}
+.section-proceed-overlay h3 { color: #0D1A63; font-size: 1.1rem; }
+.section-proceed-overlay p  { color: #666; font-size: 13px; max-width: 420px; }
+.btn-proceed {
+    background: #2D008A; color: #fff; border: none; padding: 11px 28px;
+    border-radius: 9px; font-size: 14px; font-weight: 700; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 8px;
+    transition: background .2s;
+}
+.btn-proceed:hover { background: #1a3a9e; }
+/* Save button states */
+.btn-save-section.incomplete { background: #FFC12E !important; color: #333 !important; }
+.btn-save-section.complete   { background: #04B04B !important; color: #fff !important; }
+</style>
+<script>
+let currentSection = null;
+let sectionKeys = <?= json_encode(array_keys($active_sections)) ?>;
+let autoSaveTimer;
+let totalIndicators = <?= $total_indicators ?>;
+let globalAssessmentId = <?= $assessment_id_js ?>;
+let submittedSections = <?= $submitted_sections_json ?>;
+let pendingSection = null;
+// Track which sections have been saved (key => is_complete bool)
+let savedSections = {};
+
+// Pre-populate from existing DB data
+<?php foreach ($submitted_sections as $sk => $ss): ?>
+savedSections['<?= $sk ?>'] = (<?= (int)($ss['sub_count'] ?? 0) ?> >= <?php
+    $st = 0;
+    foreach (($active_sections[$sk]['indicators'] ?? []) as $ind) $st += count($ind['sub_indicators']);
+    echo $st;
+?>);
 <?php endforeach; ?>
 
-<!-- Data Collection Details -->
-<div class="form-section" style="border-left-color:var(--teal)">
-    <div class="section-head" style="background:linear-gradient(90deg,var(--teal),#089e9b)">
-        <div class="section-head-left"><i class="fas fa-user-check"></i> Assessment Details</div>
-    </div>
-    <div class="section-body">
-        <div class="form-grid">
-            <div class="form-group">
-                <label>Assessed By</label>
-                <div style="background:#f0f4ff;border:1px solid #c5d0f0;border-radius:9px;padding:12px 16px;display:flex;align-items:center;gap:12px;">
-                    <div style="width:40px;height:40px;background:var(--navy);border-radius:10px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:17px;">
-                        <i class="fas fa-user-check"></i>
-                    </div>
-                    <div>
-                        <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px;">Logged-in Officer</div>
-                        <div style="font-size:14px;font-weight:700;color:var(--navy);"><?= htmlspecialchars($collected_by ?: 'Not identified') ?></div>
-                    </div>
-                </div>
-            </div>
-            <div class="form-group">
-                <label>Assessment Date</label>
-                <input type="date" id="assessment_date_input" class="form-control"
-                       value="<?= $e_data['assessment_date'] ?? date('Y-m-d') ?>" <?= is_readonly_attr($is_readonly) ?>>
-            </div>
-        </div>
-    </div>
-</div>
+// -- Tab click: show section header, require Proceed to see questions ----------
+function handleTabClick(sectionKey) {
+    // Hide all forms
+    document.querySelectorAll('.assessment-form').forEach(f => f.style.display = 'none');
+    // Show selected
+    const form = document.getElementById('form_' + sectionKey);
+    if (form) form.style.display = 'block';
+    // Update tabs
+    document.querySelectorAll('.section-tab').forEach(t => {
+        t.classList.remove('active');
+        if (t.dataset.section === sectionKey) t.classList.add('active');
+    });
+    currentSection = sectionKey;
+    updateSectionProgress(sectionKey);
 
-<!-- Submit Zone -->
-<?php if (!$is_readonly && !($existing['assessment_status'] ?? '') === 'Submitted'): ?>
-<div class="submit-zone">
-    <div class="submit-progress" id="submitProgressText">
-        <i class="fas fa-info-circle"></i> Save all sections to unlock final submission
-    </div>
-    <button type="button" class="btn-submit-final" id="btnFinalSubmit" disabled onclick="finalSubmit()">
-        <i class="fas fa-paper-plane"></i> Submit Final Assessment
-    </button>
-</div>
-<?php endif; ?>
-
-</div><!-- /mainForm -->
-</div><!-- /layout -->
-<?php else: ?>
-<div style="text-align:center;padding:60px 20px;color:var(--muted)">
-    <i class="fas fa-clipboard-check" style="font-size:56px;margin-bottom:16px;display:block;opacity:.3"></i>
-    <p style="font-size:16px;font-weight:600">Select a County and Assessment Period above, then click <strong>Load or Start</strong></p>
-</div>
-<?php endif; ?>
-</div><!-- /wrap -->
-
-<!-- Duplicate Modal -->
-<div class="modal-overlay" id="dupModal">
-    <div class="modal-box">
-        <div class="modal-head">
-            <h4><i class="fas fa-exclamation-triangle"></i> Assessment Already Exists</h4>
-        </div>
-        <div class="modal-body">
-            <p id="dupModalMsg"></p>
-            <div class="sections-status" id="dupSectionsStatus"></div>
-        </div>
-        <div class="modal-foot">
-            <button class="btn-outline" onclick="closeDupModal()"><i class="fas fa-times"></i> Cancel</button>
-            <a id="dupEditLink" href="#" class="btn-navy"><i class="fas fa-edit"></i> Open and Continue</a>
-            <a href="transition_dashboard.php" class="btn-navy" style="background:var(--teal)"><i class="fas fa-list"></i> Dashboard</a>
-        </div>
-    </div>
-</div>
-
-<!-- Toast -->
-<div class="toast" id="toast">
-    <i class="fas fa-check-circle toast-icon"></i>
-    <span id="toastMsg">Saved successfully</span>
-</div>
-
-<script>
-// State
-let assessmentId   = <?= $assessment_id ?: 0 ?>;
-let sectionsSaved  = <?= json_encode($sections_saved) ?>;
-const allSections  = <?= json_encode(array_keys($active_sections)) ?>;
-const isReadOnly   = <?= $is_readonly ? 'true' : 'false' ?>;
-const sectionData  = <?= json_encode($submitted_sections) ?>;
-
-function showToast(msg, type='success') {
-    const t = document.getElementById('toast');
-    if (!t) return;
-    document.getElementById('toastMsg').textContent = msg;
-    t.className = 'toast ' + type + ' show';
-    t.querySelector('.toast-icon').className = 'fas ' + (type==='success'?'fa-check-circle':'fa-exclamation-triangle') + ' toast-icon';
-    setTimeout(() => t.classList.remove('show'), 3200);
+    // Show questions area or proceed overlay
+    const questions = document.getElementById('questions_' + sectionKey);
+    const overlay   = document.getElementById('overlay_' + sectionKey);
+    if (!questions || !overlay) return;
+    // If already shown, keep shown; otherwise show overlay
+    if (questions.dataset.open !== '1') {
+        questions.style.display = 'none';
+        overlay.style.display   = 'flex';
+    }
 }
 
+function proceedToFill(sectionKey) {
+    const questions = document.getElementById('questions_' + sectionKey);
+    const overlay   = document.getElementById('overlay_' + sectionKey);
+    if (questions) { questions.style.display = 'block'; questions.dataset.open = '1'; }
+    if (overlay)   overlay.style.display = 'none';
+}
+
+function proceedToSection() {
+    closeModal();
+    if (pendingSection) {
+        handleTabClick(pendingSection);
+        proceedToFill(pendingSection);
+        pendingSection = null;
+    }
+}
+
+function closeModal() {
+    document.getElementById('sectionModal').classList.remove('show');
+}
+
+document.getElementById('sectionModal').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+});
+
+// -- Progress tracking ---------------------------------------------------------
 function updateProgress() {
-    const n = sectionsSaved.length;
-    const total = allSections.length;
-    const pct = total > 0 ? Math.round(n/total*100) : 0;
+    let totalScored = 0, totalPossible = 0;
+    document.querySelectorAll('.sub-indicator').forEach(si => {
+        const cdoh = si.querySelectorAll('.score-column.cdoh input[type="radio"]');
+        const ip   = si.querySelectorAll('.score-column.ip input[type="radio"]');
+        if (cdoh.length > 0) totalPossible++;
+        if (ip.length   > 0) totalPossible++;
+    });
+    document.querySelectorAll('input[type="radio"]:checked').forEach(() => totalScored++);
+    let pct = totalPossible > 0 ? Math.round(totalScored / totalPossible * 100) : 0;
+    document.getElementById('overallProgress').style.width = pct + '%';
+    document.getElementById('progressPercent').textContent = pct + '%';
+    document.getElementById('completionBadge').textContent = pct + '% complete';
+    sectionKeys.forEach(k => updateSectionProgress(k));
+    checkSubmitReady();
+}
 
-    const pctEl = document.getElementById('progressPct');
-    const barEl = document.getElementById('progressBar');
-    if (pctEl) pctEl.textContent = pct + '%';
-    if (barEl) barEl.style.width = pct + '%';
+function getSectionRadioStats(sectionKey) {
+    const form = document.getElementById('form_' + sectionKey);
+    if (!form) return { total: 0, checked: 0 };
+    // Count sub-indicators (each requires at least one radio group)
+    let total = 0, checked = 0;
+    form.querySelectorAll('.sub-indicator').forEach(si => {
+        const cdohGroup = si.querySelectorAll('.score-column.cdoh input[type="radio"]');
+        const ipGroup   = si.querySelectorAll('.score-column.ip input[type="radio"]');
+        const cdohChecked = si.querySelectorAll('.score-column.cdoh input[type="radio"]:checked').length > 0;
+        const ipChecked   = si.querySelectorAll('.score-column.ip input[type="radio"]:checked').length > 0;
+        if (cdohGroup.length > 0) { total++; if (cdohChecked) checked++; }
+        if (ipGroup.length   > 0) { total++; if (ipChecked)   checked++; }
+    });
+    return { total, checked };
+}
 
-    allSections.forEach(sk => {
-        const item = document.querySelector(`.sec-nav-item[data-section="${sk}"]`);
-        if (!item) return;
-        const saved = sectionsSaved.includes(sk);
-        item.className = 'sec-nav-item ' + (saved?'saved':'unsaved');
-        const icon = item.querySelector('.sec-icon i');
-        if (icon) icon.className = 'fas ' + (saved?'fa-check-circle':'fa-circle');
+function updateSectionProgress(sectionKey) {
+    const { total, checked } = getSectionRadioStats(sectionKey);
+    const pct = total > 0 ? Math.round(checked / total * 100) : 0;
+    const progressSpan = document.getElementById('section_progress_' + sectionKey);
+    if (progressSpan) progressSpan.textContent = pct + '% Complete';
+    const tab = document.querySelector(`.section-tab[data-section="${sectionKey}"]`);
+    if (tab) {
+        tab.classList.remove('completed','incomplete-saved');
+        if (savedSections[sectionKey] === true)       tab.classList.add('completed');
+        else if (savedSections[sectionKey] === false)  tab.classList.add('incomplete-saved');
+    }
+}
+
+function checkSubmitReady() {
+    const allSaved = sectionKeys.every(k => savedSections[k] === true);
+    const btn = document.getElementById('btnSubmitAll');
+    const hint = document.getElementById('submitHint');
+    if (btn) {
+        btn.disabled = !allSaved;
+        btn.title    = allSaved ? 'Submit assessment' : 'All sections must be 100% complete before submitting';
+        if (hint) hint.style.display = allSaved ? 'none' : 'block';
+    }
+}
+
+// -- Autosave on radio change --------------------------------------------------
+document.addEventListener('change', function(e) {
+    if (e.target.type === 'radio') {
+        updateProgress();
+        // Autosave after 2s debounce
+        clearTimeout(autoSaveTimer);
+        const sectionKey = e.target.dataset.section;
+        if (sectionKey) {
+            autoSaveTimer = setTimeout(() => {
+                autoSaveSection(sectionKey);
+            }, 2000);
+        }
+        // Remove unanswered highlight from this sub-indicator
+        const si = e.target.closest('.sub-indicator');
+        if (si) si.classList.remove('unanswered');
+    }
+});
+
+function autoSaveSection(sectionKey) {
+    // Silent save â€” same as saveSection but no UI flash
+    const form = document.getElementById('form_' + sectionKey);
+    if (!form) return;
+    document.getElementById('saveStatus').textContent = 'Auto-saving...';
+    document.getElementById('saveSpinner').style.display = 'inline-block';
+    _doSaveSection(sectionKey, form, false);
+}
+
+// -- AJAX: Save a single section -----------------------------------------------
+function saveSection(sectionKey) {
+    const form = document.getElementById('form_' + sectionKey);
+    if (!form) return;
+
+    // Highlight unanswered sub-indicators
+    let unansweredCount = 0;
+    form.querySelectorAll('.sub-indicator').forEach(si => {
+        const cdohGroup = si.querySelectorAll('.score-column.cdoh input[type="radio"]');
+        const ipGroup   = si.querySelectorAll('.score-column.ip input[type="radio"]');
+        const cdohOk = cdohGroup.length === 0 || si.querySelectorAll('.score-column.cdoh input[type="radio"]:checked').length > 0;
+        const ipOk   = ipGroup.length   === 0 || si.querySelectorAll('.score-column.ip input[type="radio"]:checked').length > 0;
+        if (!cdohOk || !ipOk) {
+            si.classList.add('unanswered');
+            unansweredCount++;
+        } else {
+            si.classList.remove('unanswered');
+        }
     });
 
-    const btn = document.getElementById('btnFinalSubmit');
-    const txt = document.getElementById('submitProgressText');
-    if (btn && txt && !isReadOnly) {
-        if (n >= total) {
-            btn.disabled = false;
-            txt.innerHTML = '<i class="fas fa-check-circle" style="color:var(--green)"></i> All sections saved – ready to submit!';
-        } else {
-            btn.disabled = true;
-            txt.innerHTML = '<i class="fas fa-info-circle"></i> ' + n + ' of ' + total + ' sections saved – complete all to enable submission';
-        }
-    }
+    _doSaveSection(sectionKey, form, true, unansweredCount);
 }
 
-function scrollToSection(sk) {
-    const el = document.getElementById('sec_' + sk);
-    if (el) el.scrollIntoView({behavior:'smooth', block:'start'});
-}
-
-async function loadAssessment() {
-    const cid = document.getElementById('countySelect').value;
-    const cname = document.getElementById('countySelect').options[document.getElementById('countySelect').selectedIndex]?.getAttribute('data-name') || '';
-    const period = document.getElementById('periodSelect').value;
-
-    if (!cid || !period) {
-        showToast('Please select both a County and an Assessment Period', 'error');
-        return;
+function _doSaveSection(sectionKey, form, showUI, unansweredCount) {
+    if (unansweredCount === undefined) unansweredCount = 0;
+    const btn  = document.getElementById('btn_save_' + sectionKey);
+    const hint = document.getElementById('hint_' + sectionKey);
+    if (showUI && btn) {
+        btn.classList.add('saving');
+        btn.classList.remove('incomplete','complete');
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+        document.getElementById('saveStatus').textContent = 'Saving section...';
+        document.getElementById('saveSpinner').style.display = 'inline-block';
     }
 
-    const btn = document.getElementById('btnLoad');
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Checking...';
-
-    try {
-        const response = await fetch(`transition_assessment.php?ajax=check_assessment&county_id=${cid}&period=${encodeURIComponent(period)}`, {
-            headers: {
-                'X-Requested-With': 'XMLHttpRequest'
-            }
-        });
-        const data = await response.json();
-
-        if (data.exists) {
-            // Show modal for existing assessment
-            const total = allSections.length;
-            const ss = data.sections_saved || [];
-            document.getElementById('dupModalMsg').innerHTML =
-                'An assessment for <strong>' + data.county_name + '</strong> – <strong>' + period + '</strong> already exists<br>' +
-                '(ID #' + data.assessment_id + ', status: <strong>' + data.status + '</strong>, readiness: <strong>' + (data.readiness_level || 'Not Rated') + '</strong>)';
-
-            let html = '';
-            const allLabels = <?= json_encode($section_defs) ?>;
-            for (const [sk, sl] of Object.entries(allLabels)) {
-                const sData = data.section_data?.[sk];
-                html += '<div class="sec-status-item ' + (ss.includes(sk)?'done':'todo') + '">' +
-                    '<i class="fas ' + (ss.includes(sk)?'fa-check-circle':'fa-times-circle') + '"></i>' +
-                    '<span>' + sl + (sData ? ' (CDOH: ' + Math.round((sData.avg_cdoh||0)/4*100) + '%)' : '') + '</span>' +
-                '</div>';
-            }
-            document.getElementById('dupSectionsStatus').innerHTML = html;
-            document.getElementById('dupEditLink').href = `transition_assessment.php?id=${data.assessment_id}`;
-            document.getElementById('dupModal').classList.add('show');
-        } else {
-            // No existing assessment - redirect with parameters
-            window.location.href = `transition_assessment.php?county=${cid}&period=${encodeURIComponent(period)}&sections=<?= implode(',', array_keys($all_sections)) ?>`;
-        }
-    } catch (e) {
-        console.error(e);
-        showToast('An error occurred while checking for existing assessment', 'error');
-    } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-arrow-right"></i> Load or Start';
-    }
-}
-
-function closeDupModal() {
-    const modal = document.getElementById('dupModal');
-    if (modal) modal.classList.remove('show');
-}
-
-const modal = document.getElementById('dupModal');
-if (modal) {
-    modal.addEventListener('click', function(e) {
-        if(e.target === this) closeDupModal();
-    });
-}
-
-async function saveSection(sectionKey) {
-    if (isReadOnly) {
-        showToast('Cannot save in view-only mode', 'error');
-        return;
-    }
-
-    const cid = document.getElementById('h_county_id')?.value;
-    const period = document.getElementById('h_period')?.value;
-    const cname = document.getElementById('h_county_name')?.value;
-
-    if (!cid) { showToast('Please select a county first', 'error'); return; }
-    if (!period) { showToast('Please select an assessment period', 'error'); return; }
-
-    const btn = document.querySelector('#sec_' + sectionKey + ' .btn-save-section');
-    if (!btn) return;
-
-    const origTxt = btn.innerHTML;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
-    btn.classList.add('saving');
-    btn.disabled = true;
+    const total   = parseInt(form.dataset.total || '0', 10);
+    const stats   = getSectionRadioStats(sectionKey);
+    const checked = stats.checked;
 
     const fd = new FormData();
-    fd.append('ajax_save_section', '1');
+    fd.append('save_section', '1');
     fd.append('section_key', sectionKey);
-    fd.append('county_id', cid);
-    fd.append('assessment_period', period);
-    fd.append('assessment_id', assessmentId);
-    fd.append('county_name', cname);
+    fd.append('county_id', '<?= $county_id ?>');
+    fd.append('period', '<?= addslashes($period) ?>');
+    fd.append('assessment_id', globalAssessmentId);
+    fd.append('total_expected', total);
 
-    const adate = document.getElementById('assessment_date_input');
-    if (adate) fd.append('assessment_date', adate.value);
+    const secComment = document.getElementById('sec_comment_' + sectionKey);
+    if (secComment) fd.append('section_comment', secComment.value);
 
-    // Collect all scores from this section
-    const sec = document.getElementById('sec_' + sectionKey);
-    if (sec) {
-        // Collect radio buttons
-        const radios = sec.querySelectorAll('input[type="radio"]');
-        const processedGroups = new Set();
-
-        radios.forEach(radio => {
-            const name = radio.name;
-            if (!processedGroups.has(name)) {
-                processedGroups.add(name);
-                const checked = sec.querySelector(`input[name="${name}"]:checked`);
-                if (checked) {
-                    fd.append(name, checked.value);
-                }
-            }
-        });
-
-        // Collect comments
-        const textareas = sec.querySelectorAll('textarea');
-        textareas.forEach(ta => {
-            if (ta.name) {
-                fd.append(ta.name, ta.value.trim());
-            }
-        });
-    }
-
-    try {
-        const response = await fetch('transition_assessment.php', {
-            method: 'POST',
-            body: fd,
-            headers: {
-                'X-Requested-With': 'XMLHttpRequest'
-            }
-        });
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const text = await response.text();
-
-        // Check if response is HTML
-        if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
-            console.error('Received HTML instead of JSON. Session may have expired.');
-            showToast('Session expired. Please refresh the page and login again.', 'error');
-            return;
-        }
-
-        let data;
-        try {
-            data = JSON.parse(text);
-        } catch (e) {
-            console.error('Response text:', text.substring(0, 500));
-            throw new Error('Server returned invalid JSON. Check PHP errors.');
-        }
-
-        if (data.success) {
-            assessmentId = data.assessment_id;
-            const hAid = document.getElementById('h_assessment_id');
-            if (hAid) hAid.value = assessmentId;
-            sectionsSaved = data.sections_saved;
-
-            const badge = document.getElementById('badge_' + sectionKey);
-            if (badge) badge.classList.add('show');
-
-            updateProgress();
-            showToast('Section saved successfully! CDOH: ' + data.avg_cdoh_pct + '%', 'success');
-        } else {
-            showToast(data.error || 'Save failed', 'error');
-        }
-    } catch(e) {
-        console.error('Save error:', e);
-        showToast('Error saving section – please try again', 'error');
-    } finally {
-        btn.innerHTML = origTxt;
-        btn.classList.remove('saving');
-        btn.disabled = false;
-    }
-}
-
-async function finalSubmit() {
-    if (!assessmentId) { showToast('No assessment to submit', 'error'); return; }
-    if (!confirm('Submit this transition assessment as final? It will be marked as Submitted and cannot be edited.')) return;
-
-    const fd = new FormData();
-    fd.append('ajax_submit', '1');
-    fd.append('assessment_id', assessmentId);
-    fd.append('county_id', document.getElementById('h_county_id')?.value || '');
-
-    try {
-        const response = await fetch('transition_assessment.php', {
-            method: 'POST',
-            body: fd,
-            headers: {
-                'X-Requested-With': 'XMLHttpRequest'
-            }
-        });
-        const data = await response.json();
-        if (data.success) {
-            showToast('Assessment submitted successfully! Redirecting...', 'success');
-            setTimeout(() => window.location.href = data.redirect, 1500);
-        } else {
-            showToast(data.error || 'Submission failed', 'error');
-        }
-    } catch(e) {
-        showToast('Network error – please try again', 'error');
-    }
-}
-
-// Initialize progress if form is visible
-if (document.getElementById('mainForm')) {
-    updateProgress();
-}
-
-// Keyboard shortcut (only if not read-only)
-if (!isReadOnly) {
-    document.addEventListener('keydown', function(e) {
-        if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-            e.preventDefault();
-            const unsaved = allSections.find(sk => !sectionsSaved.includes(sk));
-            if (unsaved) saveSection(unsaved);
-        }
+    form.querySelectorAll('input[type="radio"]:checked').forEach(function(r) {
+        fd.append(r.name, r.value);
     });
+    form.querySelectorAll('textarea').forEach(function(ta) {
+        if (ta.name) fd.append(ta.name, ta.value);
+    });
+
+    const url = window.location.pathname
+        + '?county=<?= $county_id ?>'
+        + '&period=<?= urlencode($period) ?>'
+        + '&sections=<?= implode(",", $sections) ?>';
+
+    fetch(url, { method: 'POST', body: fd })
+        .then(function(r) { return r.text(); })
+        .then(function(raw) {
+            var data;
+            try {
+                data = JSON.parse(raw);
+            } catch(ex) {
+                console.error('Non-JSON server response:', raw.substring(0, 300));
+                if (showUI && btn) {
+                    btn.classList.remove('saving');
+                    btn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Server Error';
+                    document.getElementById('saveStatus').textContent = 'Server error â€” check browser console';
+                    document.getElementById('saveSpinner').style.display = 'none';
+                }
+                return;
+            }
+            if (btn) btn.classList.remove('saving');
+
+            if (data.success) {
+                globalAssessmentId = data.assessment_id;
+                var isComplete = data.is_complete;
+                savedSections[sectionKey] = isComplete;
+
+                var now = new Date();
+                var fmt = now.toLocaleDateString('en-GB', {day:'2-digit', month:'short', year:'numeric'})
+                    + ' ' + now.toTimeString().slice(0,5);
+                submittedSections[sectionKey] = {
+                    submitted_at: fmt,
+                    sub_count: data.saved,
+                    avg_cdoh: data.avg_cdoh_pct * 4 / 100
+                };
+
+                var tag = document.getElementById('stag_' + sectionKey);
+                if (tag) {
+                    tag.style.display    = '';
+                    var icon = isComplete ? 'check-circle' : 'clock';
+                    tag.innerHTML = '<i class="fas fa-' + icon + '"></i> Saved ' + fmt
+                        + ' &bull; ' + data.saved + ' indicators'
+                        + (data.avg_cdoh_pct ? ' &bull; CDOH: ' + data.avg_cdoh_pct + '%' : '');
+                    tag.style.background = isComplete ? '#d4edda' : '#fff3cd';
+                    tag.style.color      = isComplete ? '#155724' : '#856404';
+                }
+
+                if (btn && showUI) {
+                    if (isComplete) {
+                        btn.classList.add('complete');
+                        btn.classList.remove('incomplete');
+                        btn.innerHTML = '<i class="fas fa-check-circle"></i> Saved (100%)';
+                    } else {
+                        btn.classList.add('incomplete');
+                        btn.classList.remove('complete');
+                        var missing = unansweredCount || Math.max(0, total - data.saved);
+                        btn.innerHTML = '<i class="fas fa-exclamation-circle"></i> Saved (' + missing + ' unanswered)';
+                    }
+                    if (hint) hint.textContent = isComplete
+                        ? ''
+                        : (unansweredCount || Math.max(0, total - data.saved)) + ' question(s) highlighted above still need answers';
+                    setTimeout(function() {
+                        if (!btn) return;
+                        if (!btn.classList.contains('complete')) {
+                            btn.innerHTML = '<i class="fas fa-save"></i> Save This Section';
+                            btn.classList.remove('incomplete');
+                        } else {
+                            btn.innerHTML = '<i class="fas fa-check"></i> Saved';
+                        }
+                    }, 4000);
+                }
+
+                updateSectionProgress(sectionKey);
+                checkSubmitReady();
+                document.getElementById('saveStatus').textContent = isComplete
+                    ? 'Section saved â€” complete'
+                    : 'Section saved â€” some questions still unanswered';
+                document.getElementById('saveSpinner').style.display = 'none';
+
+            } else {
+                if (btn && showUI) btn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Error â€” Retry';
+                document.getElementById('saveStatus').textContent = 'Error: ' + (data.error || 'unknown');
+                document.getElementById('saveSpinner').style.display = 'none';
+            }
+        })
+        .catch(function(err) {
+            if (btn) btn.classList.remove('saving');
+            if (showUI && btn) btn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Network Error';
+            document.getElementById('saveStatus').textContent = 'Network error â€” check connection';
+            document.getElementById('saveSpinner').style.display = 'none';
+            console.error(err);
+        });
 }
+
+// -- Keyboard nav -------------------------------------------------------
+document.addEventListener('keydown', function(e) {
+    if (e.ctrlKey && e.key === 'ArrowRight') {
+        e.preventDefault();
+        var i = sectionKeys.indexOf(currentSection);
+        if (i < sectionKeys.length - 1) handleTabClick(sectionKeys[i + 1]);
+    } else if (e.ctrlKey && e.key === 'ArrowLeft') {
+        e.preventDefault();
+        var i = sectionKeys.indexOf(currentSection);
+        if (i > 0) handleTabClick(sectionKeys[i - 1]);
+    }
+});
+
+// -- Init ---------------------------------------------------------------
+document.addEventListener('DOMContentLoaded', function() {
+    updateProgress();
+    Object.keys(submittedSections).forEach(function(k) {
+        var tab = document.querySelector('.section-tab[data-section="' + k + '"]');
+        if (tab) tab.classList.add(savedSections[k] === true ? 'completed' : 'incomplete-saved');
+    });
+    if (sectionKeys.length === 1) handleTabClick(sectionKeys[0]);
+    checkSubmitReady();
+});
+
+// Prevent accidental submit when sections incomplete
+document.getElementById('assessmentForm').addEventListener('submit', function(e) {
+    var allComplete = sectionKeys.every(function(k) { return savedSections[k] === true; });
+    if (!allComplete) {
+        e.preventDefault();
+        alert('Please save all sections at 100% completion before submitting the assessment.');
+    }
+});
 </script>
 </body>
 </html>

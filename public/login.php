@@ -11,8 +11,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (empty($username) || empty($password)) {
         $error_message = "Username and password are required.";
     } else {
-        $sql = "SELECT user_id, password, userrole, first_name, last_name, full_name, sex, status,
-                       photo, login_attempts, account_locked_until, id_number
+        $sql = "SELECT user_id, password, userrole, first_name, last_name, status,
+                       login_attempts, account_locked_until, assigned_county
                 FROM tblusers WHERE status = 'Active' AND username = ?";
         $stmt = $conn->prepare($sql);
         $stmt->bind_param("s", $username);
@@ -66,6 +66,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['role']           = $user['userrole']; // Add this for layout.php compatibility
                 $_SESSION['id_number']      = $user['id_number']; // Store id_number in session
                 $_SESSION['staff_id']       = $staff_id; // Store staff_id in session
+
+                // Persist the user's assigned counties in the session.
+                // Stored on tblusers.assigned_county as a comma-separated list of
+                // county_id ints (e.g. "12,5,9"). Admin / Super Admin bypass
+                // the filter (see includes/county_access.php).
+                $_SESSION['assigned_county'] = $user['assigned_county'] ?? '';
+                $ac_csv = trim((string)$_SESSION['assigned_county']);
+                $_SESSION['assigned_counties'] = $ac_csv === ''
+                    ? []
+                    : array_values(array_unique(array_filter(array_map('intval',
+                        preg_split('/\s*,\s*/', $ac_csv)))));
+
                 $_SESSION['last_activity']  = time();
 
                 // FIXED: Redirect to layout with correct path to welcome.php

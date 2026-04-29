@@ -3,6 +3,7 @@
 session_start();
 include('../includes/config.php');
 include('../includes/session_check.php');
+include('../includes/county_access.php');
 
 if (!isset($_SESSION['user_id'])) {
     header('Location: ../login.php');
@@ -14,10 +15,26 @@ $county_id = isset($_GET['county']) ? (int)$_GET['county'] : 0;
 $period    = isset($_GET['period']) ? mysqli_real_escape_string($conn, $_GET['period']) : '';
 $action    = isset($_GET['action']) ? $_GET['action'] : '';  // analyse | workplan
 
+// Block access to data for counties the user is not assigned to
+if ($county_id && !cf_user_can_access_county($county_id)) {
+    $_SESSION['error_message'] = 'You are not assigned to this county.';
+    header('Location: transition_index.php');
+    exit();
+}
+
+// Refresh county assignments from DB so online sessions stay accurate
+cf_refresh_session_from_db($conn);
+
 // -- Filter options -------------------------------------------------------------
 $counties_list = [];
-$cr = mysqli_query($conn, "SELECT county_id, county_name FROM counties ORDER BY county_name");
+$_cf_part = cf_county_filter_sql();
+$cr = mysqli_query($conn, "SELECT county_id, county_name FROM counties WHERE 1=1 $_cf_part ORDER BY county_name");
 if ($cr) while ($r = mysqli_fetch_assoc($cr)) $counties_list[] = $r;
+// Fallback: if no counties returned (non-admin with empty session), show all
+if (empty($counties_list)) {
+    $cr2 = mysqli_query($conn, "SELECT county_id, county_name FROM counties ORDER BY county_name");
+    if ($cr2) while ($r = mysqli_fetch_assoc($cr2)) $counties_list[] = $r;
+}
 
 $periods_list = [];
 $pr = mysqli_query($conn,
@@ -71,24 +88,38 @@ if ($county_id && $period) {
     }
 
     // Raw sub-indicator scores + comments
+    $section_comments = []; // section_key => [comment_text, ...]
     if ($assessment_data) {
         $aid_list = implode(',', array_unique(array_column($assessment_data, 'assessment_id')));
         $rq = mysqli_query($conn,
-            "SELECT section_key, sub_indicator_code, cdoh_score, ip_score, comments
+            "SELECT section_key, indicator_code, sub_indicator_code, cdoh_score, ip_score, comments
              FROM transition_raw_scores
              WHERE assessment_id IN ($aid_list)
-             ORDER BY section_key, sub_indicator_code");
+             ORDER BY section_key, indicator_code, sub_indicator_code");
         if ($rq) while ($r = mysqli_fetch_assoc($rq)) {
             $raw_scores[$r['section_key']][$r['sub_indicator_code']] = $r;
+        }
+
+        // Section-level comments from transition_comments
+        $sq2 = mysqli_query($conn,
+            "SELECT section_key, comment_text
+             FROM transition_comments
+             WHERE assessment_id IN ($aid_list)
+               AND comment_type = 'section'
+               AND section_key IS NOT NULL
+               AND TRIM(comment_text) != ''");
+        if ($sq2) while ($r = mysqli_fetch_assoc($sq2)) {
+            $section_comments[$r['section_key']][] = trim($r['comment_text']);
         }
     }
 }
 
 // -- Build structured data payload for AI -------------------------------------
-// This is what we send to Claude: clean, structured summary of scores
+// This is what we send to Claude: clean, structured summary of scores + comments
 function build_ai_payload(array $assessment_data, array $raw_scores,
                            array $section_labels, array $cdoh_only,
-                           string $county_name, string $period): array {
+                           string $county_name, string $period,
+                           array $section_comments = []): array {
 
     $sections = [];
     foreach ($assessment_data as $sk => $row) {
@@ -101,7 +132,7 @@ function build_ai_payload(array $assessment_data, array $raw_scores,
         $readiness  = $cdoh_pct >= 70 ? 'Transition Ready'
                     : ($cdoh_pct >= 50 ? 'Needs Support'
                     : ($cdoh_pct >= 25 ? 'Significant Gaps'
-                    : 'Critical — Not Ready'));
+                    : 'Critical - Not Ready'));
 
         // Low-scoring sub-indicators (CDOH score 0-2)
         $weak = [];
@@ -118,19 +149,38 @@ function build_ai_payload(array $assessment_data, array $raw_scores,
             }
         }
 
+        // All sub-indicator comments (not just weak ones)
+        $all_ind_comments = [];
+        if (isset($raw_scores[$sk])) {
+            foreach ($raw_scores[$sk] as $sub_code => $sr) {
+                $cmt = trim($sr['comments'] ?? '');
+                if ($cmt !== '') {
+                    $all_ind_comments[] = [
+                        'sub'     => $sub_code,
+                        'score'   => (int)$sr['cdoh_score'],
+                        'comment' => $cmt
+                    ];
+                }
+            }
+        }
+
+        // Section-level assessor notes
+        $sec_notes = $section_comments[$sk] ?? [];
+
         $sections[] = [
-            'section'       => $label,
-            'key'           => $sk,
-            'cdoh_percent'  => $cdoh_pct,
-            'ip_percent'    => $ip_pct,
-            'cdoh_gap'      => $cdoh_gap,
-            'overlap'       => $overlap,
-            'readiness'     => $readiness,
-            'cdoh_only'     => $is_co,
-            'comments'      => trim($row['submitted_by'] ?? '') . (trim($row['comments'] ?? '') ? ' — '.$row['comments'] : ''),
-            'weak_indicators' => $weak,
+            'section'            => $label,
+            'key'                => $sk,
+            'cdoh_percent'       => $cdoh_pct,
+            'ip_percent'         => $ip_pct,
+            'cdoh_gap'           => $cdoh_gap,
+            'overlap'            => $overlap,
+            'readiness'          => $readiness,
+            'cdoh_only'          => $is_co,
+            'section_notes'      => $sec_notes,
+            'indicator_comments' => $all_ind_comments,
+            'weak_indicators'    => $weak,
         ];
-    }
+    }}
 
     // Sort by cdoh_percent ascending (worst first for priority)
     usort($sections, fn($a,$b) => $a['cdoh_percent'] <=> $b['cdoh_percent']);
@@ -155,8 +205,11 @@ function build_ai_payload(array $assessment_data, array $raw_scores,
 }
 
 $ai_payload = ($county_id && $period && $assessment_data)
-    ? build_ai_payload($assessment_data, $raw_scores, $section_labels, $cdoh_only, $county_name, $period)
+    ? build_ai_payload($assessment_data, $raw_scores, $section_labels, $cdoh_only, $county_name, $period, $section_comments)
     : null;
+
+// Flag: real Claude API is available if the API key is configured
+$real_ai_available = defined('ANTHROPIC_API_KEY') && ANTHROPIC_API_KEY !== '';
 
 // -- Overall score for display -------------------------------------------------
 $overall_cdoh = $ai_payload['overall_cdoh'] ?? 0;
@@ -167,7 +220,7 @@ $overall_ip   = $ai_payload['overall_ip']   ?? 0;
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI Transition Advisor<?= $county_name ? " — $county_name" : '' ?></title>
+<title>AI Transition Advisor<?= $county_name ? " ï¿½ $county_name" : '' ?></title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -291,7 +344,7 @@ body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:#f0f2f7;
     <div class="filter-group">
         <label>County</label>
         <select name="county" onchange="this.form.submit()">
-            <option value="">— Select County —</option>
+            <option value="">ï¿½ Select County ï¿½</option>
             <?php foreach ($counties_list as $c): ?>
             <option value="<?= $c['county_id'] ?>" <?= $county_id==$c['county_id']?'selected':'' ?>>
                 <?= htmlspecialchars($c['county_name']) ?>
@@ -302,7 +355,7 @@ body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:#f0f2f7;
     <div class="filter-group">
         <label>Assessment Period</label>
         <select name="period" onchange="this.form.submit()">
-            <option value="">— Select Period —</option>
+            <option value="">ï¿½ Select Period ï¿½</option>
             <?php foreach ($periods_list as $p): ?>
             <option value="<?= htmlspecialchars($p) ?>" <?= $period===$p?'selected':'' ?>>
                 <?= htmlspecialchars($p) ?>
@@ -388,14 +441,19 @@ $low_sections   = count(array_filter($assessment_data, fn($r)=>($r['cdoh_percent
                 <span style="font-weight:700;color:<?= $col ?>;min-width:38px"><?= $cp ?>%</span>
             </div>
         </td>
-        <td style="font-weight:600;color:#b8860b"><?= $is_co ? '—' : $ip.'%' ?></td>
+        <td style="font-weight:600;color:#b8860b"><?= $is_co ? 'ï¿½' : $ip.'%' ?></td>
         <td style="font-weight:600;color:#dc3545"><?= $gp ?>%</td>
-        <td style="font-weight:600;color:#27AE60"><?= $is_co ? '—' : $ov.'%' ?></td>
+        <td style="font-weight:600;color:#27AE60"><?= $is_co ? 'ï¿½' : $ov.'%' ?></td>
         <td><span style="font-size:11px;font-weight:700;color:<?= $col ?>"><?= $st ?></span></td>
     </tr>
     <?php endforeach; ?>
     </tbody>
 </table>
+</div>
+
+<!-- Real-AI availability banner (updated live by checkAiHealth() JS) -->
+<div id="aiBanner" style="background:#f0f2f7;border:1px solid #d1d5db;border-radius:10px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#555;display:flex;align-items:center;gap:10px;">
+    <i class="fas fa-circle-notch fa-spin"></i>&nbsp; Checking AI connectivityâ€¦
 </div>
 
 <!-- AI Action buttons -->
@@ -410,7 +468,7 @@ $low_sections   = count(array_filter($assessment_data, fn($r)=>($r['cdoh_percent
        class="action-btn <?= $action==='workplan'?'active':'' ?>">
         <div class="icon">??</div>
         <div class="title">Priority Work Plan</div>
-        <div class="desc">Structured work plan for sections scoring 0–2 on CDOH. Includes activities, responsible parties, timelines and expected outcomes drawn from assessment comments.</div>
+        <div class="desc">Structured work plan for sections scoring 0ï¿½2 on CDOH. Includes activities, responsible parties, timelines and expected outcomes drawn from assessment comments.</div>
     </a>
     <a href="?county=<?= $county_id ?>&period=<?= urlencode($period) ?>&action=capacity"
        class="action-btn <?= $action==='capacity'?'active':'' ?>">
@@ -432,7 +490,7 @@ $low_sections   = count(array_filter($assessment_data, fn($r)=>($r['cdoh_percent
                 <?php else: ?>AI Advisor Ready<?php endif; ?>
             </h2>
             <div class="sub" id="aiPanelSub">
-                <?= $county_name ?> · <?= htmlspecialchars($period) ?>
+                <?= $county_name ?> ï¿½ <?= htmlspecialchars($period) ?>
             </div>
         </div>
         <?php if ($action): ?>
@@ -451,10 +509,10 @@ $low_sections   = count(array_filter($assessment_data, fn($r)=>($r['cdoh_percent
     </div>
 
     <?php else: ?>
-    <!-- Loading spinner — visible until JS replaces it -->
+    <!-- Loading spinner ï¿½ visible until JS replaces it -->
     <div class="loading-state" id="loadingState">
         <div class="spinner"></div>
-        <p>Generating AI analysis…</p>
+        <p>Generating AI analysisï¿½</p>
         <p class="sub-text">Claude is reading <?= $sections_count ?> sections of assessment data</p>
     </div>
     <div id="aiOutput" style="display:none"></div>
@@ -480,21 +538,39 @@ function buildPrompt(action, payload) {
     const readiness    = payload.readiness;
     const sections     = payload.sections;
 
-    // Build a compact text summary of sections
+    // Build a compact text summary of sections (includes assessor comments)
     const sectionSummary = sections.map(s => {
         let line = `- **${s.section}** (${s.key}): CDOH ${s.cdoh_percent}%`;
         if (!s.cdoh_only && s.ip_percent !== null) line += `, IP ${s.ip_percent}%`;
         line += `, Gap ${s.cdoh_gap}%`;
         if (!s.cdoh_only && s.overlap !== null) line += `, Overlap ${s.overlap}%`;
-        line += ` ? ${s.readiness}`;
+        line += ` - ${s.readiness}`;
+
+        // Section-level assessor notes
+        if (s.section_notes && s.section_notes.length > 0) {
+            line += '\n  **Assessor section notes:** ' + s.section_notes.map(n => `"${n}"`).join('; ');
+        }
+
+        // Weak sub-indicators with comments
         if (s.weak_indicators && s.weak_indicators.length > 0) {
             const weak = s.weak_indicators.map(w => {
-                let wl = `  • ${w.code} (CDOH:${w.cdoh}${w.ip!==null?', IP:'+w.ip:''})`;
-                if (w.comments) wl += ` — *"${w.comments}"*`;
+                let wl = `  - ${w.code} (CDOH:${w.cdoh}${w.ip!==null?', IP:'+w.ip:''})`;
+                if (w.comments) wl += ` - *"${w.comments}"*`;
                 return wl;
             }).join('\n');
             line += '\n  Weak sub-indicators:\n' + weak;
         }
+
+        // Additional indicator comments (medium/high scorers that still have notes)
+        if (s.indicator_comments && s.indicator_comments.length > 0) {
+            const extraComments = s.indicator_comments
+                .filter(c => !s.weak_indicators || !s.weak_indicators.some(w => w.code === c.sub))
+                .slice(0, 3);
+            if (extraComments.length > 0) {
+                line += '\n  Additional field notes: ' + extraComments.map(c => `[${c.sub}, score:${c.score}] "${c.comment}"`).join('; ');
+            }
+        }
+
         return line;
     }).join('\n\n');
 
@@ -507,7 +583,7 @@ function buildPrompt(action, payload) {
 **Overall CDOH Score:** ${overall_cdoh}% (${readiness})
 **Overall IP Score:** ${overall_ip}%
 
-## Scoring Scale (0–4)
+## Scoring Scale (0ï¿½4)
 - 4 = Fully adequate / Implements independently
 - 3 = Partially adequate / Mostly independent
 - 2 = Some evidence / Involved but not independent
@@ -521,15 +597,15 @@ ${sectionSummary}
 Provide a comprehensive **Transition Readiness Analysis** with the following sections:
 
 ### 1. Executive Summary
-2–3 paragraph narrative summary of the county's overall transition readiness, highlighting strengths and critical gaps.
+2ï¿½3 paragraph narrative summary of the county's overall transition readiness, highlighting strengths and critical gaps.
 
 ### 2. Transition Readiness by Domain
-For each section (group thematically — Leadership, Service Delivery, Health Systems), describe the readiness status and key findings. Highlight where IP involvement is still high vs. where CDOH has taken ownership.
+For each section (group thematically ï¿½ Leadership, Service Delivery, Health Systems), describe the readiness status and key findings. Highlight where IP involvement is still high vs. where CDOH has taken ownership.
 
 ### 3. Recommended Transition Model
 For each section, recommend one of three transition models:
 - **Direct Transition** (CDOH = 70%): IP can exit; CDOH takes full ownership
-- **Graduated Transition** (CDOH 50–69%): Phased handover over 2–3 quarters with milestone-based IP withdrawal
+- **Graduated Transition** (CDOH 50-69%): Phased handover over 2ï¿½3 quarters with milestone-based IP withdrawal
 - **Supervised Transition** (CDOH < 50%): IP remains, CDOH co-leads with intensive mentorship and capacity building
 
 Format as a table: | Section | CDOH% | IP% | Model | Rationale | Timeline |
@@ -538,7 +614,7 @@ Format as a table: | Section | CDOH% | IP% | Model | Rationale | Timeline |
 List the top 5 most critical areas needing immediate attention to accelerate transition, with specific rationale based on the scores and any field comments.
 
 ### 5. Transition Risks
-Identify 3–5 key risks if transition proceeds without addressing the identified gaps, and suggest mitigation measures.
+Identify 3ï¿½5 key risks if transition proceeds without addressing the identified gaps, and suggest mitigation measures.
 
 Be specific, evidence-based, and reference the actual scores and comments from the assessment data.`;
 
@@ -546,13 +622,20 @@ Be specific, evidence-based, and reference the actual scores and comments from t
         // Only include sections with weak indicators (cdoh score 0-2)
         const weakSections = sections.filter(s => s.weak_indicators && s.weak_indicators.length > 0);
         const weakSummary  = weakSections.map(s => {
+            let header = `**${s.section}** - CDOH: ${s.cdoh_percent}%`;
+
+            // Section-level notes first
+            if (s.section_notes && s.section_notes.length > 0) {
+                header += '\n  Assessor section notes: ' + s.section_notes.map(n => `"${n}"`).join('; ');
+            }
+
             const weak = s.weak_indicators.map(w => {
-                let wl = `    • ${w.code} [Score: ${w.cdoh}/4]`;
+                let wl = `  - ${w.code} [Score: ${w.cdoh}/4]`;
                 if (w.ip !== null) wl += ` | IP: ${w.ip}/4`;
                 if (w.comments) wl += `\n      Field comment: "${w.comments}"`;
                 return wl;
             }).join('\n');
-            return `**${s.section}** — CDOH: ${s.cdoh_percent}%\n${weak}`;
+            return header + '\n' + weak;
         }).join('\n\n');
 
         return `You are a PEPFAR HIV/TB transition specialist creating a detailed work plan for ${county} County to address capacity gaps identified during the ${period} Transition Benchmarking Assessment.
@@ -561,7 +644,7 @@ Be specific, evidence-based, and reference the actual scores and comments from t
 **County:** ${county} | **Period:** ${period}
 **Overall CDOH Score:** ${overall_cdoh}% | **Readiness:** ${readiness}
 
-## Sections with Low CDOH Scores (Score 0–2 sub-indicators requiring action)
+## Sections with Low CDOH Scores (Score 0ï¿½2 sub-indicators requiring action)
 ${weakSummary}
 
 ## Instructions
@@ -609,13 +692,13 @@ A prioritised table of capacity gaps, grouped by:
 
 ### 2. Phased Capacity Building Plan
 
-**Phase 1 — Foundation (Months 1–3):**
+**Phase 1 ï¿½ Foundation (Months 1-3):**
 Address score-0 and score-1 gaps. Intensive IP mentorship, training, and process documentation.
 
-**Phase 2 — Strengthening (Months 4–6):**
+**Phase 2 ï¿½ Strengthening (Months 4-6):**
 Address score-2 gaps. Co-implementation, joint supervision, and system strengthening.
 
-**Phase 3 — Consolidation (Months 7–12):**
+**Phase 3 ï¿½ Consolidation (Months 7-12):**
 Address score-3 gaps to reach score-4. CDOH-led implementation, IP advisory only. Prepare for IP exit.
 
 For each phase, provide a table: | Activity | Target Section | Current Score | Target Score | Lead | Support | Milestones |
@@ -623,53 +706,115 @@ For each phase, provide a table: | Activity | Target Section | Current Score | T
 ### 3. IP Exit Strategy
 Describe a phased IP exit schedule by section, specifying:
 - Sections where IP can exit immediately (CDOH = 70%)
-- Sections requiring 6-month exit timeline (CDOH 50–70%)
+- Sections requiring 6-month exit timeline (CDOH 50-70%)
 - Sections requiring 12-month exit timeline (CDOH < 50%)
 
 ### 4. Resource Mobilisation Strategy
 How the county can mobilise domestic resources to fill financing gaps identified in the Finance and Sub-Grants sections.
 
 ### 5. Success Metrics
-Define 5–7 measurable indicators to track transition progress over the next 12 months, with baseline values from the current assessment.
+Define 5ï¿½7 measurable indicators to track transition progress over the next 12 months, with baseline values from the current assessment.
 
 Be specific and reference actual scores. Where assessors left comments, incorporate them into your recommendations.`;
     }
 }
 
-// -- Stream from Claude API ----------------------------------------------------
+// -- Call Claude API via PHP proxy (server-side) or fallback rule-based ------
+const realAiAvailable = <?= $real_ai_available ? 'true' : 'false' ?>;
+
+// Run a quick health check when page loads so the user knows immediately
+// whether the server can reach the Anthropic API
+async function checkAiHealth() {
+    const banner = document.getElementById('aiBanner');
+    if (!banner) return;
+    try {
+        const res  = await fetch('transition_ai_proxy.php?action=health');
+        const data = await res.json();
+        if (data.status === 'ready') {
+            banner.style.background   = '#f0fdf4';
+            banner.style.borderColor  = '#86efac';
+            banner.style.color        = '#166534';
+            banner.innerHTML = '<i class="fas fa-circle-check"></i> <strong>Claude AI ready</strong> &mdash; Server can reach the Anthropic API. Model: ' + data.model;
+        } else {
+            let hint = '';
+            if (!data.api_key_set)    hint = 'API key not set in <code>includes/config.php</code>.';
+            else if (!data.curl_available && !data.fopen_available)
+                                       hint = 'Server cannot make outbound HTTP requests (cURL &amp; allow_url_fopen both unavailable).';
+            else                       hint = 'Check server network / firewall settings.';
+            banner.style.background   = '#fff8e1';
+            banner.style.borderColor  = '#ffe082';
+            banner.style.color        = '#92400e';
+            banner.innerHTML = '<i class="fas fa-exclamation-circle"></i> <strong>AI not reachable</strong> &mdash; ' + hint
+                + ' <a href="transition_ai_proxy.php?action=health" target="_blank" style="color:#2D008A;font-weight:700;">Full diagnostic &rarr;</a>';
+        }
+    } catch(e) {
+        if (banner) {
+            banner.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Could not contact the AI proxy. Check server error logs.';
+            banner.style.background  = '#fee2e2';
+            banner.style.borderColor = '#fca5a5';
+            banner.style.color       = '#991b1b';
+        }
+    }
+}
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', checkAiHealth);
+} else {
+    checkAiHealth();
+}
+
 async function generateAnalysis() {
     const prompt = buildPrompt(action, payload);
     const outputEl  = document.getElementById('aiOutput');
     const loadingEl = document.getElementById('loadingState');
 
+    if (!realAiAvailable) {
+        // No API key configured: show a helpful notice
+        loadingEl.style.display = 'none';
+        outputEl.style.display  = 'block';
+        outputEl.innerHTML = `
+        <div style="background:#fff8e1;border:1px solid #ffe082;padding:18px 20px;border-radius:10px;margin-bottom:18px;">
+            <strong><i class="fas fa-info-circle" style="color:#f59e0b"></i> Real AI not configured</strong><br>
+            <p style="margin-top:8px;font-size:13px;color:#555;">
+                The Claude API key has not been set. To enable real AI-powered analysis:
+            </p>
+            <ol style="margin:10px 0 0 20px;font-size:13px;color:#555;line-height:1.9">
+                <li>Get a free API key from <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a></li>
+                <li>Open <code>includes/config.php</code></li>
+                <li>Set <code>define('ANTHROPIC_API_KEY', 'sk-ant-api03-...');</code></li>
+            </ol>
+        </div>`;
+        return;
+    }
+
     try {
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
+        // Call the PHP proxy which forwards the request to Anthropic server-to-server
+        const response = await fetch('transition_ai_proxy.php', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                model: 'claude-sonnet-4-20250514',
-                max_tokens: 4096,
-                messages: [{ role: 'user', content: prompt }]
-            })
+            body: JSON.stringify({ prompt: prompt })
         });
 
         const data = await response.json();
 
         if (!response.ok || !data.content || !data.content[0]) {
-            throw new Error(data.error?.message || 'API request failed');
+            const msg = data.message || data.error?.message || JSON.stringify(data.error) || 'API request failed';
+            throw new Error(msg);
         }
 
         const text = data.content[0].text;
 
-        // Convert markdown to HTML
+        // Convert markdown to HTML and display
         const html = markdownToHtml(text);
         loadingEl.style.display = 'none';
-        outputEl.innerHTML = html;
+        outputEl.innerHTML = `
+            <div style="background:#f0fdf4;border:1px solid #86efac;padding:9px 14px;border-radius:8px;margin-bottom:16px;font-size:12px;color:#166534;">
+                <i class="fas fa-robot"></i> <strong>Generated by Claude AI</strong> &mdash; based on ${payload.sections.length} sections of assessment data
+            </div>` + html;
         outputEl.style.display = 'block';
 
     } catch (err) {
         loadingEl.style.display = 'none';
-        outputEl.style.display = 'block';
+        outputEl.style.display  = 'block';
         outputEl.innerHTML = `<div style="background:#fee2e2;border:1px solid #fca5a5;padding:16px;border-radius:10px;color:#991b1b;">
             <strong><i class="fas fa-exclamation-triangle"></i> Error generating analysis</strong><br>
             <span style="font-size:13px">${err.message}</span>
@@ -705,7 +850,7 @@ function markdownToHtml(md) {
         // Blockquote
         .replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>')
         // Unordered list
-        .replace(/^([ \t]*)[-*•] (.+)$/gm, (m, indent, text) => {
+        .replace(/^([ \t]*)[-*ï¿½] (.+)$/gm, (m, indent, text) => {
             const depth = indent.length > 0 ? ' style="margin-left:20px"' : '';
             return `<li${depth}>${text}</li>`;
         })
@@ -735,7 +880,7 @@ function printOutput() {
     const title   = document.getElementById('aiPanelTitle').textContent;
     const win = window.open('', '_blank');
     win.document.write(`<!DOCTYPE html><html><head>
-        <title>${title} — <?= htmlspecialchars($county_name) ?></title>
+        <title>${title} - <?= htmlspecialchars($county_name) ?></title>
         <style>
             body{font-family:'Segoe UI',Arial,sans-serif;max-width:900px;margin:40px auto;padding:20px;color:#333;line-height:1.7;}
             h1,h2{color:#0D1A63;border-bottom:2px solid #e0e4f0;padding-bottom:6px;margin-top:24px;}
@@ -749,32 +894,4 @@ function printOutput() {
             .print-header{background:#0D1A63;color:#fff;padding:20px;margin:-20px -20px 30px;border-radius:8px;}
             .print-header h1{color:#fff;border:none;font-size:20px;}
             .print-header p{opacity:.8;font-size:13px;margin-top:4px;}
-            @media print{.no-print{display:none}}
-        </style>
-    </head><body>
-        <div class="print-header">
-            <h1>${title}</h1>
-            <p><?= htmlspecialchars($county_name) ?> &nbsp;·&nbsp; <?= htmlspecialchars($period) ?> &nbsp;·&nbsp; CDOH: <?= $overall_cdoh ?>% &nbsp;·&nbsp; Generated: ${new Date().toLocaleDateString()}</p>
-        </div>
-        ${content}
-        <script>window.onload=()=>window.print()<\/script>
-    </body></html>`);
-    win.document.close();
-}
-
-function copyOutput() {
-    const text = document.getElementById('aiOutput').innerText;
-    navigator.clipboard.writeText(text).then(() => {
-        const btn = event.target.closest('button');
-        const orig = btn.innerHTML;
-        btn.innerHTML = '<i class="fas fa-check"></i> Copied!';
-        setTimeout(() => btn.innerHTML = orig, 2000);
-    });
-}
-
-// -- Kick off generation on page load -----------------------------------------
-document.addEventListener('DOMContentLoaded', generateAnalysis);
-</script>
-<?php endif; ?>
-</body>
-</html>
+            @media p

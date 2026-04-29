@@ -25,7 +25,8 @@ $section_labels=[
     'retention_suppression'=>'Retention','prevention_kp'=>'Prevention/KP',
     'finance'=>'Finance','sub_grants'=>'Sub-Grants','commodities'=>'Commodities',
     'equipment'=>'Equipment','laboratory'=>'Laboratory','inventory'=>'Inventory',
-    'training'=>'Training','hr_management'=>'HR Mgmt','data_management'=>'Data Mgmt',
+    'training'=>'Training','hr'=>'HR Mgmt','hr_management'=>'HR Mgmt',
+    'data_management'=>'Data Mgmt',
     'patient_monitoring'=>'Patient Monitoring','institutional_ownership'=>'Institutional',
 ];
 $cdoh_only_sections=['leadership','institutional_ownership'];
@@ -48,16 +49,23 @@ if(count($sel_counties)>=2 && count($sel_periods)<=1){
 } elseif(count($sel_periods)>=2 && count($sel_counties)<=1){
     $compare_by='period';
     $c_filter = count($sel_counties)===1 ? "AND tss.county_id={$sel_counties[0]}" : '';
-    foreach($sel_periods as $p){
+    // Sort periods chronologically so the most recent (current) is LAST → shows improvement left-to-right
+    $sorted_periods = $sel_periods;
+    sort($sorted_periods); // natural sort: Q1 2026 before Q2 2026
+    foreach($sorted_periods as $p){
         $groups[]=["label"=>$p,"where"=>"tss.assessment_period='$p' $c_filter"];
     }
 } elseif(count($sel_counties)>=1 && count($sel_periods)>=1){
     $compare_by='combo';
+    // Sort periods chronologically within each county so current is last
+    $sorted_periods = $sel_periods;
+    sort($sorted_periods);
     foreach($sel_counties as $cid){
         $cn_row=mysqli_fetch_assoc(mysqli_query($conn,"SELECT county_name FROM counties WHERE county_id=$cid"));
         $cn=$cn_row?$cn_row['county_name']:"County $cid";
-        foreach($sel_periods as $p){
-            $groups[]=["label"=>"$cn / $p","where"=>"tss.county_id=$cid AND tss.assessment_period='$p'"];
+        foreach($sorted_periods as $p){
+            // Label: "CDOH County / Q1 2026" vs final → use compact period label
+            $groups[]=["label"=>"$cn $p","where"=>"tss.county_id=$cid AND tss.assessment_period='$p'"];
         }
     }
 }
@@ -81,16 +89,19 @@ foreach($groups as $gi=>$g){
     $secs=[];
     if($res) while($row=mysqli_fetch_assoc($res)){
         $sk=$row['section_key'];
+        if($sk==='hr') $sk='hr_management'; // normalise legacy key
         $is_co=in_array($sk,$cdoh_only_sections);
-        $secs[$sk]=['label'=>$section_labels[$sk]??$sk,'cdoh_pct'=>(float)$row['cdoh_pct'],
-            'ip_pct'=>$is_co?null:(float)$row['ip_pct'],
-            'overlap'=>(float)$row['overlap_pct'],'gap'=>(float)$row['gap_pct'],
+        $secs[$sk]=['label'=>$section_labels[$sk]??$sk,
+            'cdoh_pct'=>round((float)$row['cdoh_pct'],2),
+            'ip_pct'=>$is_co?null:round((float)$row['ip_pct'],2),
+            'overlap'=>round((float)$row['overlap_pct'],2),
+            'gap'=>round((float)$row['gap_pct'],2),
             'cdoh_only'=>$is_co,'sub_count'=>(int)$row['sub_count']];
     }
     $cdoh_vals=array_filter(array_column($secs,'cdoh_pct'),fn($v)=>$v>0);
     $ip_vals  =array_filter(array_map(fn($s)=>$s['ip_pct'],$secs),fn($v)=>$v!==null&&$v>0);
-    $overall_cdoh=count($cdoh_vals)>0?round(array_sum($cdoh_vals)/count($cdoh_vals),1):0;
-    $overall_ip  =count($ip_vals)>0?round(array_sum($ip_vals)/count($ip_vals),1):0;
+    $overall_cdoh=count($cdoh_vals)>0?round(array_sum($cdoh_vals)/count($cdoh_vals),2):0;
+    $overall_ip  =count($ip_vals)>0?round(array_sum($ip_vals)/count($ip_vals),2):0;
     $group_data[]=["label"=>$g['label'],"sections"=>$secs,"color"=>$group_colors[$gi%count($group_colors)],
         "overall_cdoh"=>$overall_cdoh,"overall_ip"=>$overall_ip,
         "readiness"=>$overall_cdoh>=70?'Transition':($overall_cdoh>=50?'Support and Monitor':'Not Ready')];
@@ -105,9 +116,12 @@ foreach(array_keys($all_keys) as $sk) $common_labels[]=($section_labels[$sk]??$s
 
 // -- Chart JSON ---------------------------------------------------------------
 // Grouped bar: CDOH% per section per group
+// IP chart uses alternating Brown / DarkGoldenrod for clarity
+$ip_colors = ['#8B4513','#B8860B','#6B3A2A','#9A7B0A','#7B2D00','#A08500'];
 $cdoh_datasets=[];$ip_datasets=[];$overlap_datasets=[];$gap_datasets=[];
 foreach($group_data as $gi=>$gd){
-    $col=$gd['color'];
+    $col    = $gd['color'];
+    $ip_col = $ip_colors[$gi % count($ip_colors)];
     $cdoh_vals_arr=[];$ip_arr=[];$ov_arr=[];$gap_arr=[];
     foreach(array_keys($all_keys) as $sk){
         $s=$gd['sections'][$sk]??['cdoh_pct'=>0,'ip_pct'=>0,'overlap'=>0,'gap'=>0,'cdoh_only'=>false];
@@ -116,8 +130,15 @@ foreach($group_data as $gi=>$gd){
         $ov_arr[]=$s['overlap'];
         $gap_arr[]=$s['cdoh_only']?0:$s['gap'];
     }
+    // Build period-range labels when comparing periods: "CDOH Q1 2026/Q2 2026"
+    $cdoh_label = count($group_data)===2 && isset($group_data[0],$group_data[1])
+        ? "CDOH ".$group_data[0]['label']."/".$group_data[1]['label']
+        : $gd['label']." CDOH";
+    $ip_label   = count($group_data)===2 && isset($group_data[0],$group_data[1])
+        ? "IP ".$group_data[0]['label']."/".$group_data[1]['label']
+        : $gd['label']." IP";
     $cdoh_datasets[]=["label"=>$gd['label']." CDOH","data"=>$cdoh_vals_arr,"backgroundColor"=>$col,"borderRadius"=>4,"borderSkipped"=>false];
-    $ip_datasets[]  =["label"=>$gd['label']." IP",  "data"=>$ip_arr,        "backgroundColor"=>$col."99","borderRadius"=>4,"borderSkipped"=>false,"borderColor"=>$col,"borderWidth"=>1.5];
+    $ip_datasets[]  =["label"=>$gd['label']." IP",  "data"=>$ip_arr,"backgroundColor"=>$ip_col,"borderRadius"=>4,"borderSkipped"=>false,"borderColor"=>$ip_col,"borderWidth"=>1.5];
     $overlap_datasets[]=["label"=>$gd['label']." Overlap","data"=>$ov_arr,"backgroundColor"=>$col,"borderRadius"=>4,"borderSkipped"=>false];
     $gap_datasets[]    =["label"=>$gd['label']." Gap","data"=>$gap_arr,"backgroundColor"=>$col."99","borderRadius"=>4,"borderSkipped"=>false];
 }
@@ -280,9 +301,9 @@ body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:#f0f2f7;
             </div>
             <?php endforeach; ?>
             <?php if(count($group_data)===2):
-                $d=$group_data[1][$key]-$group_data[0][$key];
+                $d=round($group_data[1][$key]-$group_data[0][$key],2);
                 $cls=$d>0?'delta-up':($d<0?'delta-down':'delta-neutral');
-                echo "<div style='margin-top:6px'><span class='$cls'>".($d>=0?'+':'').round($d,1)."pp vs prev.</span></div>";
+                echo "<div style='margin-top:6px'><span class='$cls'>".($d>=0?'+':'').number_format($d,2)."pp vs prev.</span></div>";
             endif; ?>
         </div>
     </div>
@@ -382,8 +403,8 @@ body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:#f0f2f7;
                 <?php if(count($group_data)===2):
                     $v0=$group_data[0]['sections'][$sk]['cdoh_pct']??0;
                     $v1=$group_data[1]['sections'][$sk]['cdoh_pct']??0;
-                    $d=round($v1-$v0,1);$cls=$d>0?'delta-up':($d<0?'delta-down':'delta-neutral');
-                ?><td><span class="<?= $cls ?>"><?= $d>=0?'+':'' ?><?= $d ?>pp</span></td><?php endif; ?>
+                    $d=round($v1-$v0,2);$cls=$d>0?'delta-up':($d<0?'delta-down':'delta-neutral');
+                ?><td><span class="<?= $cls ?>"><?= $d>=0?'+':'' ?><?= number_format($d,2) ?>pp</span></td><?php endif; ?>
             </tr>
             <?php endforeach; ?>
             <!-- Overall row -->
@@ -399,9 +420,9 @@ body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:#f0f2f7;
                 </td>
                 <?php endforeach; ?>
                 <?php if(count($group_data)===2):
-                    $d=round($group_data[1]['overall_cdoh']-$group_data[0]['overall_cdoh'],1);
+                    $d=round($group_data[1]['overall_cdoh']-$group_data[0]['overall_cdoh'],2);
                     $cls=$d>0?'delta-up':($d<0?'delta-down':'delta-neutral');
-                ?><td><span class="<?= $cls ?>"><?= $d>=0?'+':'' ?><?= $d ?>pp</span></td><?php endif; ?>
+                ?><td><span class="<?= $cls ?>"><?= $d>=0?'+':'' ?><?= number_format($d,2) ?>pp</span></td><?php endif; ?>
             </tr>
             </tbody>
         </table>

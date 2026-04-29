@@ -34,9 +34,6 @@ if (!empty($search)) {
               OR first_name LIKE '%$search%'
               OR last_name LIKE '%$search%'
               OR full_name LIKE '%$search%'
-              OR email LIKE '%$search%'
-              OR sex LIKE '%$search%'
-              OR mobile LIKE '%$search%'
               OR userrole LIKE '%$search%'
               OR status LIKE '%$search%'";
 }
@@ -379,9 +376,6 @@ foreach ($users as $user) {
                         <th>ID</th>
                         <th>Username</th>
                         <th>Full Name</th>
-                        <th>Email</th>
-                        <th>Sex</th>
-                        <th>Mobile</th>
                         <th>Role</th>
                         <th>Status</th>
                         <th>Date Created</th>
@@ -405,9 +399,6 @@ foreach ($users as $user) {
                                 <td><?php echo htmlspecialchars($user['user_id']); ?></td>
                                 <td><?php echo htmlspecialchars($user['username']); ?></td>
                                 <td><?php echo htmlspecialchars($user['full_name'] ?? $user['first_name'] . ' ' . $user['last_name']); ?></td>
-                                <td><?php echo htmlspecialchars($user['email']); ?></td>
-                                <td><?php echo htmlspecialchars($user['sex']); ?></td>
-                                <td><?php echo htmlspecialchars($user['mobile']); ?></td>
                                 <td><?php echo htmlspecialchars($user['userrole']); ?></td>
                                 <td>
                                     <span class="status-badge <?php echo (isset($user['status']) && $user['status'] == 'Active') ? 'status-active' : 'status-inactive'; ?>">

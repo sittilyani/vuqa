@@ -3,6 +3,7 @@
 session_start();
 include('../includes/config.php');
 include('../includes/session_check.php');
+include('../includes/county_access.php');
 
 // Check if dompdf is available for PDF export
 $dompdf_available = false;
@@ -25,11 +26,31 @@ if (!isset($_SESSION['user_id'])) {
     exit();
 }
 
+// Refresh county assignments from DB so online sessions stay accurate
+// (session may have been created before county assignments were saved)
+cf_refresh_session_from_db($conn);
+
 // Get parameters
-$county_id = isset($_GET['county']) ? (int)$_GET['county'] : 0;
-$assessment_id = isset($_GET['assessment_id']) ? (int)$_GET['assessment_id'] : 0;
-$period = isset($_GET['period']) ? mysqli_real_escape_string($conn, $_GET['period']) : '';
-$export_format = isset($_GET['export']) ? $_GET['export'] : '';
+$county_id     = isset($_GET['county'])        ? (int)$_GET['county']                                      : 0;
+$assessment_id = isset($_GET['assessment_id']) ? (int)$_GET['assessment_id']                               : 0;
+$period        = isset($_GET['period'])        ? mysqli_real_escape_string($conn, $_GET['period'])         : '';
+$export_format = isset($_GET['export'])        ? $_GET['export']                                           : '';
+
+// If only assessment_id given (no county), resolve county_id from DB so the
+// access check below can run correctly
+if ($assessment_id && !$county_id) {
+    $r = mysqli_fetch_assoc(mysqli_query($conn,
+        "SELECT county_id FROM transition_assessments WHERE assessment_id=$assessment_id LIMIT 1"));
+    if ($r) $county_id = (int)$r['county_id'];
+}
+
+// Block access to a county the user is not assigned to
+// Admins always pass; non-admins must have the county in their assigned list
+if ($county_id && !cf_user_can_access_county($county_id)) {
+    $_SESSION['error_message'] = 'You are not assigned to this county.';
+    header('Location: transition_index.php');
+    exit();
+}
 
 // If no county specified, show selection interface
 if (!$county_id && !$assessment_id && !$export_format) {
@@ -199,32 +220,39 @@ function showCountySelection($conn) {
 
         <div class="card">
             <h2><i class="fas fa-map-marker-alt"></i> Select County & Assessment</h2>
-            <form method="GET" action="transition_workplan.php">
+            <form method="GET" action="transition_workplan.php" id="wpForm">
                 <div class="filter-group">
                     <label>County:</label>
-                    <select name="county" required>
+                    <select name="county" id="selCounty" required>
                         <option value="">-- Select County --</option>
                         <?php
-                        $counties = $conn->query("SELECT county_id, county_name FROM counties ORDER BY county_name");
-                        while ($c = $counties->fetch_assoc()) {
-                            echo "<option value='{$c['county_id']}'>{$c['county_name']}</option>";
+                        // cf_load_counties respects county access; fallback to all if none assigned
+                        $county_rows = cf_load_counties($conn);
+                        if (empty($county_rows)) {
+                            $county_rows = [];
+                            $fallback = $conn->query("SELECT county_id, county_name FROM counties ORDER BY county_name");
+                            if ($fallback) while ($c = $fallback->fetch_assoc()) $county_rows[] = $c;
+                        }
+                        foreach ($county_rows as $c) {
+                            echo "<option value='{$c['county_id']}'>" . htmlspecialchars($c['county_name']) . "</option>";
                         }
                         ?>
                     </select>
                 </div>
                 <div class="filter-group">
                     <label>Assessment Period:</label>
-                    <select name="period">
+                    <select name="period" id="selPeriod">
                         <option value="">-- Latest Assessment --</option>
                         <?php
                         $periods = $conn->query("SELECT DISTINCT assessment_period FROM transition_section_submissions ORDER BY assessment_period DESC");
-                        while ($p = $periods->fetch_assoc()) {
-                            echo "<option value='{$p['assessment_period']}'>{$p['assessment_period']}</option>";
+                        if ($periods) while ($p = $periods->fetch_assoc()) {
+                            echo "<option value='" . htmlspecialchars($p['assessment_period']) . "'>" . htmlspecialchars($p['assessment_period']) . "</option>";
                         }
                         ?>
                     </select>
                 </div>
                 <button type="submit" class="btn-generate"><i class="fas fa-magic"></i> Generate AI-Powered Workplan</button>
+                <p id="wpStatus" style="margin-top:8px;font-size:12px;color:#888;"></p>
             </form>
         </div>
 
@@ -232,14 +260,17 @@ function showCountySelection($conn) {
             <h2><i class="fas fa-history"></i> Recent Assessments</h2>
             <div class="assessment-list">
                 <?php
+                // Apply county access filter so online users only see their counties
+                $_cf = cf_county_filter_sql('tss.county_id');
                 $recent = $conn->query("
                     SELECT DISTINCT tss.assessment_id, tss.county_id, c.county_name, tss.assessment_period,
                            AVG(tss.cdoh_percent) as avg_score,
                            MAX(tss.submitted_at) as submitted_at
                     FROM transition_section_submissions tss
                     JOIN counties c ON tss.county_id = c.county_id
+                    WHERE 1=1 $_cf
                     GROUP BY tss.assessment_id, tss.county_id, c.county_name, tss.assessment_period
-                    ORDER BY submitted_at DESC LIMIT 10
+                    ORDER BY submitted_at DESC LIMIT 15
                 ");
                 while ($row = $recent->fetch_assoc()) {
                     $readiness = $row['avg_score'] >= 70 ? 'Transition' : ($row['avg_score'] >= 50 ? 'Support and Monitor' : 'Not Ready');
@@ -342,6 +373,55 @@ function getAssessmentData($conn, $county_id, $assessment_id, $period) {
         if ($row['ip_percent'] - $row['cdoh_percent'] > 0) $gap_scores[] = $row['ip_percent'] - $row['cdoh_percent'];
     }
 
+    // Fetch raw_scores comments grouped by section_key
+    $comments_by_section = array();
+    if ($data['assessment_id']) {
+        $aid = (int)$data['assessment_id'];
+
+        // Sub-indicator level comments from transition_raw_scores
+        $cr = $conn->query("
+            SELECT section_key, indicator_code, sub_indicator_code, comments, cdoh_score
+            FROM transition_raw_scores
+            WHERE assessment_id = $aid AND comments IS NOT NULL AND TRIM(comments) != ''
+            ORDER BY section_key, indicator_code, sub_indicator_code
+        ");
+        if ($cr) {
+            while ($crow = $cr->fetch_assoc()) {
+                $sk = $crow['section_key'];
+                if (!isset($comments_by_section[$sk])) $comments_by_section[$sk] = array();
+                $comments_by_section[$sk][] = array(
+                    'type'      => 'indicator',
+                    'indicator' => $crow['indicator_code'],
+                    'sub'       => $crow['sub_indicator_code'],
+                    'comment'   => trim($crow['comments']),
+                    'score'     => $crow['cdoh_score']
+                );
+            }
+        }
+
+        // Section-level comments from transition_comments
+        $sec_cr = $conn->query("
+            SELECT section_key, comment_text
+            FROM transition_comments
+            WHERE assessment_id = $aid AND comment_type = 'section' AND section_key IS NOT NULL AND TRIM(comment_text) != ''
+        ");
+        if ($sec_cr) {
+            while ($srow = $sec_cr->fetch_assoc()) {
+                $sk = $srow['section_key'];
+                if (!isset($comments_by_section[$sk])) $comments_by_section[$sk] = array();
+                // Section comments go first
+                array_unshift($comments_by_section[$sk], array(
+                    'type'      => 'section',
+                    'indicator' => '',
+                    'sub'       => '',
+                    'comment'   => trim($srow['comment_text']),
+                    'score'     => null
+                ));
+            }
+        }
+    }
+    $data['comments_by_section'] = $comments_by_section;
+
     $data['summary'] = array(
         'avg_cdoh' => count($cdoh_scores) > 0 ? round(array_sum($cdoh_scores) / count($cdoh_scores), 1) : 0,
         'avg_ip' => count($ip_scores) > 0 ? round(array_sum($ip_scores) / count($ip_scores), 1) : 0,
@@ -412,7 +492,9 @@ function generateWorkplan($assessment_data, $conn) {
         'end_date' => $end_date,
         'critical_sections' => $critical_sections,
         'recommendations' => $recommendations,
-        'all_sections' => $assessment_data['sections']
+        'all_sections' => $assessment_data['sections'],
+        'comments_by_section' => $assessment_data['comments_by_section'] ?? array(),
+        'summary' => $assessment_data['summary']
     );
 
     return $workplan;
@@ -526,11 +608,38 @@ function generateAIRecs($assessment_data, $conn) {
         )
     );
 
+    // Comments from raw_scores and section-level (passed via assessment_data)
+    $comments_by_section = isset($assessment_data['comments_by_section']) ? $assessment_data['comments_by_section'] : array();
+
     // Generate recommendations based on actual scores
     foreach ($sections as $key => $section) {
         $label = getSectionLabel($key);
         $cdoh = $section['cdoh_percent'];
         $gap = $section['gap'];
+
+        // Build a comments narrative for this section if comments exist
+        $comments_narrative = '';
+        if (!empty($comments_by_section[$key])) {
+            $sec_comments  = array(); // section-level comments
+            $ind_comments  = array(); // indicator-level comments
+            foreach ($comments_by_section[$key] as $c) {
+                if ($c['type'] === 'section') {
+                    $sec_comments[] = $c['comment'];
+                } else {
+                    $ind_comments[] = '[' . $c['sub'] . '] ' . $c['comment'];
+                }
+            }
+            $narrative_parts = array();
+            if (!empty($sec_comments)) {
+                $narrative_parts[] = implode(' ', $sec_comments);
+            }
+            if (!empty($ind_comments)) {
+                $narrative_parts[] = 'Indicator-level notes: ' . implode('; ', array_slice($ind_comments, 0, 5));
+            }
+            if (!empty($narrative_parts)) {
+                $comments_narrative = 'From the comments in the ' . $label . ' section: ' . implode(' ', $narrative_parts);
+            }
+        }
 
         // Low CDOH score - needs capacity building
         if ($cdoh < 50) {
@@ -539,7 +648,8 @@ function generateAIRecs($assessment_data, $conn) {
                 'priority' => 'Critical',
                 'type' => 'Capacity Building',
                 'message' => "{$label} shows significant gaps (CDOH: {$cdoh}%). Immediate capacity building required. Focus on institutionalizing basic structures and processes before transitioning advanced functions.",
-                'action_items' => getDefaultActions($key, 'low')
+                'action_items' => getDefaultActions($key, 'low'),
+                'comments_narrative' => $comments_narrative
             );
         }
         // Medium CDOH score with high IP gap - needs transition planning
@@ -549,7 +659,8 @@ function generateAIRecs($assessment_data, $conn) {
                 'priority' => 'High',
                 'type' => 'Transition Planning',
                 'message' => "{$label} shows moderate CDOH capacity ({$cdoh}%) but high dependency on IP (gap: {$gap}%). Phased transition needed with clear handover milestones.",
-                'action_items' => getDefaultActions($key, 'medium')
+                'action_items' => getDefaultActions($key, 'medium'),
+                'comments_narrative' => $comments_narrative
             );
         }
         // High CDOH score - ready for handover
@@ -559,7 +670,8 @@ function generateAIRecs($assessment_data, $conn) {
                 'priority' => 'Routine',
                 'type' => 'Final Handover',
                 'message' => "{$label} demonstrates strong county ownership ({$cdoh}%). Accelerate final handover and documentation.",
-                'action_items' => getDefaultActions($key, 'high')
+                'action_items' => getDefaultActions($key, 'high'),
+                'comments_narrative' => $comments_narrative
             );
         }
 
@@ -849,6 +961,12 @@ function getWorkplanHTML($workplan) {
                         </div>
                     </div>
                     <p style="margin-bottom: 8px;"><?= htmlspecialchars($rec['message']) ?></p>
+                    <?php if (!empty($rec['comments_narrative'])): ?>
+                    <div style="background: #f0f4ff; border-left: 3px solid #2D008A; padding: 9px 12px; margin-bottom: 10px; border-radius: 4px; font-size: 12px; font-style: italic; color: #3a3a6a;">
+                        <i class="fas fa-comment-alt" style="margin-right: 6px; color: #2D008A;"></i>
+                        <?= htmlspecialchars($rec['comments_narrative']) ?>
+                    </div>
+                    <?php endif; ?>
                     <div>
                         <strong>Key Action Items:</strong>
                         <ul class="action-list">
@@ -940,8 +1058,41 @@ function getWorkplanHTML($workplan) {
             </div>
         </div>
 
+        <?php if (!empty($workplan['comments_by_section'])): ?>
+        <!-- Assessor Field Notes Summary -->
+        <div class="section-title">Assessor Field Notes Summary</div>
+        <div class="card">
+            <div class="card-body">
+                <p style="font-size:12px; color:#666; margin-bottom:14px;">
+                    The following are verbatim notes recorded by the assessor during the field assessment, organised by section.
+                </p>
+                <?php foreach ($workplan['comments_by_section'] as $sec_key => $sec_notes): ?>
+                <div style="margin-bottom:16px;">
+                    <div style="font-weight:700; color:#2D008A; font-size:13px; margin-bottom:6px;">
+                        <i class="fas fa-folder-open" style="margin-right:6px;"></i>
+                        <?= htmlspecialchars(getSectionLabel($sec_key)) ?>
+                    </div>
+                    <?php foreach ($sec_notes as $note): ?>
+                    <div style="background:#fdfcf9; border-left:3px solid <?= $note['type']==='section' ? '#04B04B' : '#AC80EE' ?>; padding:7px 12px; margin-bottom:5px; border-radius:4px; font-size:12px;">
+                        <?php if ($note['type'] === 'section'): ?>
+                            <em style="color:#04B04B; font-size:10px; display:block; margin-bottom:2px;">Section comment</em>
+                        <?php else: ?>
+                            <em style="color:#555; font-size:10px; display:block; margin-bottom:2px;"><?= htmlspecialchars($note['sub']) ?></em>
+                        <?php endif; ?>
+                        <?= htmlspecialchars($note['comment']) ?>
+                        <?php if ($note['score'] !== null): ?>
+                            <span style="float:right; font-weight:700; color:#2D008A;">Score: <?= $note['score'] ?>/4</span>
+                        <?php endif; ?>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        <?php endif; ?>
+
         <div class="footer-note">
-            This workplan was generated using AI based on assessment data from the Transition Benchmarking Tool.<br>
+            This workplan was generated based on assessment data and assessor field notes from the Transition Benchmarking Tool.<br>
             Generated on: <?= date('d F Y H:i:s') ?>
         </div>
     </div>
@@ -1058,4 +1209,3 @@ function showNoDataError() {
     </html>
     <?php
 }
-?>
