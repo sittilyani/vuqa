@@ -2,7 +2,7 @@
 $host = 'localhost';
 $username = 'root';
 $password = '';
-$database = 'transition';
+$database = 'vuqa';
 
 $conn = new mysqli($host, $username, $password, $database);
 

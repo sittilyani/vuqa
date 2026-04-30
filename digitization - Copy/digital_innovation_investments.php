@@ -359,19 +359,11 @@ if (isset($_POST['ajax_csv_import'])) {
         $asset_name_s = $e($asset_row['dit_asset_name']);
         $dep_pct      = (float)$asset_row['depreciation_percentage'];
 
-        // ── Duplicate check ──────────────────────────────────────────────
-        $tag_chk  = $e($data['tag_name'] ?? '');
-        $dup_sql  = $tag_chk
-            ? "SELECT invest_id FROM digital_innovation_investments WHERE facility_id=$fid AND dit_asset_name='$asset_name_s' AND tag_name='$tag_chk' LIMIT 1"
-            : "SELECT invest_id FROM digital_innovation_investments WHERE facility_id=$fid AND dit_asset_name='$asset_name_s' AND DATE(issue_date)='$idate' AND purchase_value=$pv LIMIT 1";
-        if (mysqli_fetch_assoc(mysqli_query($conn, $dup_sql))) { $skipped++; continue; }
-        // ────────────────────────────────────────────────────────────────
-
         $no_end  = (int)(!empty($data['no_end_date']) && strtolower($data['no_end_date']) !== '0');
         $edate_r = $e($data['end_date'] ?? '');
         $edate_v = ($no_end || $edate_r === '') ? 'NULL' : "'$edate_r'";
 
-        $tag_c    = $tag_chk;
+        $tag_c    = $e($data['tag_name']           ?? '');
         $qty_c    = max(1, (int)($data['quantity'] ?? 1));
         $tc_c     = round($pv * $qty_c, 2);
         $funder_c = $e($data['dig_funder_name']    ?? '');
@@ -550,19 +542,11 @@ if (isset($_POST['ajax_excel_import'])) {
         $mo_up   = max(0, (int)($diff_up['m'] ?? 0));
         $cv_up   = max(0, round($r_pv_up * pow(1 - $dep_up / 100, $mo_up / 12), 2));
 
-        // ── Duplicate check ──────────────────────────────────────────────
-        $tag_chk_up = $e($data_up['tag_name'] ?? '');
-        $dup_sql_up = $tag_chk_up
-            ? "SELECT invest_id FROM digital_innovation_investments WHERE facility_id=$fid_up AND dit_asset_name='$r_asset_up' AND tag_name='$tag_chk_up' LIMIT 1"
-            : "SELECT invest_id FROM digital_innovation_investments WHERE facility_id=$fid_up AND dit_asset_name='$r_asset_up' AND DATE(issue_date)='$r_idate_up' AND purchase_value=$r_pv_up LIMIT 1";
-        if (mysqli_fetch_assoc(mysqli_query($conn, $dup_sql_up))) { $skipped_up++; continue; }
-        // ────────────────────────────────────────────────────────────────
-
         $no_end_up  = (int)(!empty($data_up['no_end_date']) && strtolower($data_up['no_end_date']) !== '0');
         $edate_r_up = $parse_date_up($data_up['end_date'] ?? '');
         $edate_up   = ($no_end_up || !$edate_r_up) ? 'NULL' : "'$edate_r_up'";
 
-        $tag_up     = $tag_chk_up;
+        $tag_up     = $e($data_up['tag_name']             ?? '');
         $qty_up     = max(1, (int)($data_up['quantity']   ?? 1));
         $tc_up      = round($r_pv_up * $qty_up, 2);
         $funder_up  = $e($data_up['dig_funder_name']      ?? '');
@@ -906,9 +890,6 @@ tbody td{padding:9px 12px;vertical-align:middle;}
     </button>
     <button class="tab-btn" id="tab_list" onclick="showTab('list')">
         <i class="fas fa-table"></i> All Investments
-        <span style="background:var(--primary);color:#fff;border-radius:20px;padding:1px 8px;font-size:11px;margin-left:4px">
-            <?= number_format($s_total) ?>
-        </span>
     </button>
     <button class="tab-btn" id="tab_csv" onclick="showTab('csv')">
         <i class="fas fa-file-csv"></i> Import CSV
@@ -1996,7 +1977,7 @@ function filterTable() {
     });
 }
 
-// ── Excel / xlsx import ──────────────────────────────────────
+// ── Excel / xlsx import ────────────────────────────────────────────────
 let xlsFile = null;
 
 const xlsDrop = document.getElementById('xlsDrop');
@@ -2004,52 +1985,59 @@ if (xlsDrop) {
     xlsDrop.addEventListener('dragover', e => { e.preventDefault(); xlsDrop.classList.add('drag-over'); });
     xlsDrop.addEventListener('dragleave', () => xlsDrop.classList.remove('drag-over'));
     xlsDrop.addEventListener('drop', e => {
-        e.preventDefault(); xlsDrop.classList.remove('drag-over');
+        e.preventDefault();
+        xlsDrop.classList.remove('drag-over');
         const f = e.dataTransfer.files[0];
-        if (f) onXlsFileChange({ files: [f] });
+        if (f) {
+            xlsFile = f;
+            document.getElementById('xlsFileName').textContent = '📎 ' + f.name;
+            document.getElementById('btnXlsImport').disabled = false;
+        }
     });
 }
-
 function onXlsFileChange(input) {
-    const file = input.files ? input.files[0] : null;
-    if (!file) return;
-    xlsFile = file;
-    document.getElementById('xlsFileName').textContent = file.name + ' (' + (file.size/1024).toFixed(1) + ' KB)';
-    document.getElementById('btnXlsImport').disabled = false;
+    if (input.files.length) {
+        xlsFile = input.files[0];
+        document.getElementById('xlsFileName').textContent = '📎 ' + xlsFile.name;
+        document.getElementById('btnXlsImport').disabled = false;
+    }
 }
-
 async function importXls() {
-    if (!xlsFile) { showToast('Please select a file first.', 'error'); return; }
+    if (!xlsFile) { showToast('Please select a file.', 'error'); return; }
     const btn = document.getElementById('btnXlsImport');
-    const res = document.getElementById('xlsImportResult');
-    btn.disabled = true;
+    const orig = btn.innerHTML;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Importing…';
-    res.innerHTML = '<div class="alert alert-info"><i class="fas fa-spinner fa-spin"></i> Processing — large files may take up to 60 seconds…</div>';
+    btn.disabled = true;
     const fd = new FormData();
     fd.append('ajax_excel_import', '1');
     fd.append('xls_file', xlsFile);
     try {
-        const data = await fetch(THIS_FILE, { method: 'POST', body: fd }).then(r => r.json());
+        const data = await fetch(THIS_FILE, {method:'POST', body:fd}).then(r=>r.json());
+        const res = document.getElementById('xlsImportResult');
         if (data.success) {
-            const dupNote = data.skipped > 0
-                ? '<br><small style="color:var(--muted)">' + data.skipped + ' row(s) skipped (duplicates, missing required fields, or facility not found)</small>'
-                : '';
-            const errHtml = (data.errors && data.errors.length)
-                ? '<ul style="margin:8px 0 0;padding-left:18px;font-size:12px">' + data.errors.map(e => '<li>' + e + '</li>').join('') + '</ul>'
-                : '';
-            res.innerHTML = '<div class="alert" style="background:#d4f8e5;border-left:4px solid var(--green);color:#1a4731;padding:14px 18px;display:flex;gap:12px;align-items:flex-start"><i class="fas fa-check-circle" style="font-size:1.2rem;flex-shrink:0;margin-top:2px"></i><div><strong>Import complete:</strong> ' + data.imported + ' record(s) imported' + dupNote + errHtml + '</div></div>';
-            if (data.imported > 0) setTimeout(() => window.location.reload(), 2200);
+            let html = `<div class="alert alert-success">
+                <i class="fas fa-check-circle" style="font-size:1.3rem;flex-shrink:0"></i>
+                <div><strong>Import Complete!</strong><br>
+                ✅ ${data.imported} records imported &nbsp;|&nbsp;
+                ⚠️ ${data.skipped} rows skipped</div></div>`;
+            if (data.errors && data.errors.length) {
+                html += `<div class="alert alert-error"><i class="fas fa-exclamation-triangle"></i>
+                    <div><strong>Notes:</strong><br>${data.errors.map(e=>'• '+e).join('<br>')}</div></div>`;
+            }
+            res.innerHTML = html;
+            if (data.imported > 0) setTimeout(() => window.location.reload(), 2000);
         } else {
-            res.innerHTML = '<div class="alert" style="background:#fde8eb;border-left:4px solid var(--red);color:#7a1020;padding:14px 18px;display:flex;gap:12px"><i class="fas fa-exclamation-triangle" style="font-size:1.2rem;flex-shrink:0"></i><div><strong>Error:</strong> ' + (data.error || 'Import failed') + '</div></div>';
+            res.innerHTML = `<div class="alert alert-error">
+                <i class="fas fa-times-circle"></i> ${data.error}</div>`;
         }
-    } catch(err) {
-        res.innerHTML = '<div class="alert" style="background:#fde8eb;border-left:4px solid var(--red);color:#7a1020;padding:14px 18px;display:flex;gap:12px"><i class="fas fa-exclamation-triangle"></i><div><strong>Network error</strong> — the server did not respond. Try splitting into smaller batches (&lt;500 rows).</div></div>';
+    } catch(e) {
+        document.getElementById('xlsImportResult').innerHTML =
+            `<div class="alert alert-error"><i class="fas fa-times-circle"></i> Network error.</div>`;
     }
-    btn.disabled = false;
-    btn.innerHTML = '<i class="fas fa-file-import"></i> Import Records';
+    btn.innerHTML = orig; btn.disabled = false;
 }
 
-// ── CSV import ──────────────────────────────────────────────
+// ── CSV import ──────────────────────────────────────────────────────────
 let csvFile = null;
 
 const csvDrop = document.getElementById('csvDrop');
@@ -2057,77 +2045,64 @@ if (csvDrop) {
     csvDrop.addEventListener('dragover', e => { e.preventDefault(); csvDrop.classList.add('drag-over'); });
     csvDrop.addEventListener('dragleave', () => csvDrop.classList.remove('drag-over'));
     csvDrop.addEventListener('drop', e => {
-        e.preventDefault(); csvDrop.classList.remove('drag-over');
-        const f = e.dataTransfer.files[0];
-        if (f) onCsvFileChange({ files: [f] });
+        e.preventDefault();
+        csvDrop.classList.remove('drag-over');
+        const file = e.dataTransfer.files[0];
+        if (file && (file.type === 'text/csv' || file.name.endsWith('.csv'))) {
+            csvFile = file;
+            document.getElementById('csvFileName').textContent = '📎 ' + file.name;
+            document.getElementById('btnImport').disabled = false;
+        } else {
+            showToast('Please upload a valid CSV file.', 'error');
+        }
     });
 }
 
 function onCsvFileChange(input) {
-    const file = input.files ? input.files[0] : null;
-    if (!file) return;
-    csvFile = file;
-    document.getElementById('csvFileName').textContent = file.name + ' (' + (file.size/1024).toFixed(1) + ' KB)';
-    document.getElementById('btnImport').disabled = false;
+    if (input.files.length) {
+        csvFile = input.files[0];
+        document.getElementById('csvFileName').textContent = '📎 ' + csvFile.name;
+        document.getElementById('btnImport').disabled = false;
+    }
 }
 
 async function importCsv() {
     if (!csvFile) { showToast('Please select a CSV file first.', 'error'); return; }
     const btn = document.getElementById('btnImport');
-    const res = document.getElementById('importResult');
-    btn.disabled = true;
+    const origHtml = btn.innerHTML;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Importing…';
-    res.innerHTML = '<div class="alert alert-info"><i class="fas fa-spinner fa-spin"></i> Processing…</div>';
+    btn.disabled = true;
+
     const fd = new FormData();
     fd.append('ajax_csv_import', '1');
     fd.append('csv_file', csvFile);
+
     try {
-        const data = await fetch(THIS_FILE, { method: 'POST', body: fd }).then(r => r.json());
+        const data = await fetch(THIS_FILE, {method:'POST', body:fd}).then(r=>r.json());
+        const res  = document.getElementById('importResult');
         if (data.success) {
-            const dupNote = data.skipped > 0
-                ? '<br><small style="color:var(--muted)">' + data.skipped + ' row(s) skipped (duplicates, missing required fields, or facility not found)</small>'
-                : '';
-            const errHtml = (data.errors && data.errors.length)
-                ? '<ul style="margin:8px 0 0;padding-left:18px;font-size:12px">' + data.errors.map(e => '<li>' + e + '</li>').join('') + '</ul>'
-                : '';
-            res.innerHTML = '<div class="alert" style="background:#d4f8e5;border-left:4px solid var(--green);color:#1a4731;padding:14px 18px;display:flex;gap:12px;align-items:flex-start"><i class="fas fa-check-circle" style="font-size:1.2rem;flex-shrink:0;margin-top:2px"></i><div><strong>Import complete:</strong> ' + data.imported + ' record(s) imported' + dupNote + errHtml + '</div></div>';
-            if (data.imported > 0) setTimeout(() => window.location.reload(), 2200);
+            let html = `<div class="alert alert-success">
+                <i class="fas fa-check-circle" style="font-size:1.3rem;flex-shrink:0"></i>
+                <div><strong>Import Complete!</strong><br>
+                ✅ ${data.imported} records imported &nbsp;|&nbsp;
+                ⚠️ ${data.skipped} rows skipped</div></div>`;
+            if (data.errors.length) {
+                html += `<div class="alert alert-error"><i class="fas fa-exclamation-triangle"></i>
+                    <div><strong>Errors:</strong><br>${data.errors.map(e=>`• ${e}`).join('<br>')}</div></div>`;
+            }
+            res.innerHTML = html;
+            if (data.imported > 0) setTimeout(() => window.location.reload(), 2000);
         } else {
-            res.innerHTML = '<div class="alert" style="background:#fde8eb;border-left:4px solid var(--red);color:#7a1020;padding:14px 18px;display:flex;gap:12px"><i class="fas fa-exclamation-triangle" style="font-size:1.2rem;flex-shrink:0"></i><div><strong>Error:</strong> ' + (data.error || 'Import failed') + '</div></div>';
+            res.innerHTML = `<div class="alert alert-error">
+                <i class="fas fa-times-circle"></i> ${data.error}</div>`;
         }
-    } catch(err) {
-        res.innerHTML = '<div class="alert" style="background:#fde8eb;border-left:4px solid var(--red);color:#7a1020;padding:14px 18px;display:flex;gap:12px"><i class="fas fa-exclamation-triangle"></i><div><strong>Network error</strong> — please check your connection.</div></div>';
+    } catch(e) {
+        document.getElementById('importResult').innerHTML =
+            `<div class="alert alert-error"><i class="fas fa-times-circle"></i> Network error — please try again.</div>`;
     }
-    btn.disabled = false;
-    btn.innerHTML = '<i class="fas fa-file-import"></i> Import Records';
+
+    btn.innerHTML = origHtml;
+    btn.disabled  = false;
 }
 
-// ── Download CSV template ─────────────────
-function downloadTemplate(e) {
-    e.preventDefault();
-    const headers = 'facility_name,mflcode,county_name,subcounty_name,dit_asset_name,tag_name,quantity,purchase_value,depreciation_percentage,issue_date,end_date,no_end_date,service_level,dig_funder_name,sdp_name,emr_type_name,lot_number,name_of_user,department_name,date_of_verification,comments\n';
-    const blob = new Blob([headers], { type: 'text/csv' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'investments_import_template.csv';
-    a.click();
-}
-
-// ── Toast notifications ──────────────────────────────
-function showToast(msg, type) {
-    type = type || 'success';
-    const existing = document.getElementById('toastMsg');
-    if (existing) existing.remove();
-    const colours = { success: 'var(--green)', error: 'var(--red)', info: 'var(--primary)' };
-    const icons   = { success: 'fa-check-circle', error: 'fa-exclamation-circle', info: 'fa-info-circle' };
-    const t = document.createElement('div');
-    t.id = 'toastMsg';
-    t.style.cssText = 'position:fixed;bottom:28px;right:28px;z-index:9999;background:#1a1e2e;color:#fff;padding:12px 20px;border-radius:10px;font-size:13.5px;display:flex;align-items:center;gap:10px;box-shadow:0 6px 28px rgba(0,0,0,.35);border-left:4px solid ' + (colours[type]||colours.info) + ';max-width:380px';
-    t.innerHTML = '<i class="fas ' + (icons[type]||icons.info) + '" style="color:' + (colours[type]||colours.info) + '"></i>' + msg;
-    document.body.appendChild(t);
-    setTimeout(function() { t.style.opacity='0'; t.style.transition='opacity .4s'; setTimeout(function(){ t.remove(); }, 400); }, 3500);
-}
-
-</script>
-</body>
-</html>
+// ── Download CSV template ─────────────────�

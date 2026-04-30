@@ -46,40 +46,40 @@ CREATE TABLE IF NOT EXISTS `asset_master_register` (
 --  Run each ALTER separately if your MySQL version complains.
 
 ALTER TABLE `digital_innovation_investments`
-  ADD COLUMN IF NOT EXISTS `asset_id`            int UNSIGNED    DEFAULT NULL
+  ADD COLUMN `asset_id`            int UNSIGNED    DEFAULT NULL
         COMMENT 'FK → asset_master_register.asset_id'
         AFTER `invest_id`,
 
-  ADD COLUMN IF NOT EXISTS `tag_name`            varchar(100)    DEFAULT NULL
+  ADD COLUMN `tag_name`            varchar(100)    DEFAULT NULL
         COMMENT 'Physical asset tag / barcode label'
         AFTER `asset_name`,
 
-  ADD COLUMN IF NOT EXISTS `quantity`            int UNSIGNED    NOT NULL DEFAULT 1
+  ADD COLUMN `quantity`            int UNSIGNED    NOT NULL DEFAULT 1
         COMMENT 'Units issued to this facility'
         AFTER `tag_name`,
 
-  ADD COLUMN IF NOT EXISTS `total_cost`          decimal(15,2)   NOT NULL DEFAULT 0.00
+  ADD COLUMN `total_cost`          decimal(15,2)   NOT NULL DEFAULT 0.00
         COMMENT 'quantity × purchase_value at time of issue'
         AFTER `quantity`,
 
-  ADD COLUMN IF NOT EXISTS `latitude`            decimal(10,7)   DEFAULT NULL
+  ADD COLUMN `latitude`            decimal(10,7)   DEFAULT NULL
         COMMENT 'Facility latitude from facilities table'
         AFTER `subcounty_name`,
 
-  ADD COLUMN IF NOT EXISTS `longitude`           decimal(10,7)   DEFAULT NULL
+  ADD COLUMN `longitude`           decimal(10,7)   DEFAULT NULL
         COMMENT 'Facility longitude from facilities table'
         AFTER `latitude`,
 
-  ADD COLUMN IF NOT EXISTS `name_of_user`        varchar(150)    DEFAULT NULL
+  ADD COLUMN `name_of_user`        varchar(150)    DEFAULT NULL
         COMMENT 'Staff member / user the asset is assigned to',
 
-  ADD COLUMN IF NOT EXISTS `department_name`     varchar(100)    DEFAULT NULL
+  ADD COLUMN `department_name`     varchar(100)    DEFAULT NULL
         COMMENT 'Department / service point (e.g. CCC, MCH)',
 
-  ADD COLUMN IF NOT EXISTS `date_of_verification` date           DEFAULT NULL
+  ADD COLUMN `date_of_verification` date           DEFAULT NULL
         COMMENT 'Most recent physical verification date',
 
-  ADD COLUMN IF NOT EXISTS `date_of_disposal`    date            DEFAULT NULL;
+  ADD COLUMN `date_of_disposal`    date            DEFAULT NULL;
 
 
 -- ── 3. Add indexes for new columns ─────────────────────────────────────

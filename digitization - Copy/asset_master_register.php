@@ -463,7 +463,7 @@ while ($r = mysqli_fetch_assoc($asset_types_res)) $asset_types_arr[$r['dit_asset
 
 // Load list
 $list_res = mysqli_query($conn,
-    "SELECT * FROM asset_master_register WHERE is_active=1 ORDER BY created_at DESC");
+    "SELECT * FROM asset_master_register WHERE is_active=1 ORDER BY created_at DESC LIMIT 500");
 $assets_list = [];
 while ($r = mysqli_fetch_assoc($list_res)) $assets_list[] = $r;
 
