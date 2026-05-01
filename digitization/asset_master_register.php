@@ -451,9 +451,27 @@ if (isset($_GET['export_csv'])) {
 }
 
 // ── Load dropdowns and data ─────────────────────────────────────────────
-$funders_res  = mysqli_query($conn, "SELECT dig_funder_name FROM digital_funders ORDER BY dig_funder_name");
+// Funders (id + name for proper select)
+$funders_res  = mysqli_query($conn, "SELECT dig_funder_id, dig_funder_name FROM digital_funders ORDER BY dig_funder_name");
 $funders_arr  = [];
-while ($r = mysqli_fetch_assoc($funders_res)) $funders_arr[] = $r['dig_funder_name'];
+while ($r = mysqli_fetch_assoc($funders_res)) $funders_arr[] = $r;
+
+// asset_categories (with depreciation_percentage)
+$cats_res  = mysqli_query($conn, "SELECT category_id, category_name, depreciation_percentage FROM asset_categories ORDER BY category_name");
+$cats_arr  = [];
+while ($r = mysqli_fetch_assoc($cats_res)) $cats_arr[] = $r;
+// Build JS lookup: categoryName => depreciation_percentage
+$cats_dep_js = json_encode(array_column($cats_arr, 'depreciation_percentage', 'category_name'));
+
+// Organizations (project/programme names)
+$orgs_res  = mysqli_query($conn, "SELECT org_id, org_name FROM organizations ORDER BY org_name");
+$orgs_arr  = [];
+while ($r = mysqli_fetch_assoc($orgs_res)) $orgs_arr[] = $r;
+
+// Acquisition types
+$acqs_res  = mysqli_query($conn, "SELECT acq_id, acq_name FROM acquisitions ORDER BY acq_name");
+$acqs_arr  = [];
+while ($r = mysqli_fetch_assoc($acqs_res)) $acqs_arr[] = $r;
 
 // Asset type catalog for depreciation hint
 $asset_types_res = mysqli_query($conn,
@@ -738,16 +756,15 @@ tbody td{padding:9px 12px;vertical-align:middle;}
       </div>
 
       <div class="form-group">
-        <label>Asset Category</label>
-        <select id="f_asset_category" class="form-select">
+        <label>Asset Category <span class="req">*</span></label>
+        <select id="f_asset_category" class="form-select" onchange="onCategoryChange(this.value)">
           <option value="">-- Select Category --</option>
-          <?php
-          $cats = ['Computer and ICT Accessories','Network Equipment','Power Equipment',
-                   'Security Equipment','Peripheral Devices','Infrastructure','Software License','Other'];
-          foreach ($cats as $cat):
-          $sel = ($edit_row && $edit_row['asset_category'] == $cat) ? 'selected' : '';
+          <?php foreach ($cats_arr as $cat):
+          $sel = ($edit_row && $edit_row['asset_category'] == $cat['category_name']) ? 'selected' : '';
           ?>
-          <option value="<?= $cat ?>" <?= $sel ?>><?= $cat ?></option>
+          <option value="<?= htmlspecialchars($cat['category_name']) ?>" <?= $sel ?>>
+            <?= htmlspecialchars($cat['category_name']) ?>
+          </option>
           <?php endforeach; ?>
         </select>
       </div>
@@ -781,7 +798,8 @@ tbody td{padding:9px 12px;vertical-align:middle;}
       <div class="form-group">
         <label>Date of Acquisition</label>
         <input type="date" id="f_date_of_acquisition" class="form-control"
-               oninput="calcCurrentValue()"
+               max="<?= date('Y-m-d') ?>"
+               oninput="calcCurrentValue(); validateDisposalDate()"
                value="<?= $edit_row ? htmlspecialchars($edit_row['date_of_acquisition'] ?? '') : '' ?>">
       </div>
 
@@ -803,7 +821,8 @@ tbody td{padding:9px 12px;vertical-align:middle;}
       <div class="form-group">
         <label>Depreciation Rate (% per annum)</label>
         <input type="number" id="f_depreciation_percentage" class="form-control"
-               min="0" max="100" step="0.01" placeholder="e.g. 33.33"
+               min="0" max="100" step="0.01" placeholder="Auto-filled from category"
+               readonly style="background:#f4f2fb;cursor:not-allowed"
                oninput="calcCurrentValue()"
                value="<?= $edit_row ? htmlspecialchars($edit_row['depreciation_percentage'] ?? '') : '' ?>">
         <div id="depHint" class="dep-badge" style="display:none">
@@ -824,30 +843,42 @@ tbody td{padding:9px 12px;vertical-align:middle;}
 
       <div class="form-group">
         <label>Funder / Donor Organisation</label>
-        <input type="text" id="f_dig_funder_name" class="form-control"
-               list="funderList" placeholder="Type or select…"
-               value="<?= $edit_row ? htmlspecialchars($edit_row['dig_funder_name'] ?? '') : '' ?>">
-        <datalist id="funderList">
-          <?php foreach ($funders_arr as $fn): ?>
-          <option value="<?= htmlspecialchars($fn) ?>">
+        <select id="f_dig_funder_name" class="form-select">
+          <option value="">-- Select Funder --</option>
+          <?php foreach ($funders_arr as $fn):
+          $sel = ($edit_row && $edit_row['dig_funder_name'] == $fn['dig_funder_name']) ? 'selected' : '';
+          ?>
+          <option value="<?= htmlspecialchars($fn['dig_funder_name']) ?>" <?= $sel ?>>
+            <?= htmlspecialchars($fn['dig_funder_name']) ?>
+          </option>
           <?php endforeach; ?>
-        </datalist>
+        </select>
       </div>
 
       <div class="form-group">
         <label>Project / Programme Name</label>
-        <input type="text" id="f_project_name" class="form-control"
-               placeholder="e.g. Stawisha"
-               value="<?= $edit_row ? htmlspecialchars($edit_row['project_name'] ?? '') : '' ?>">
+        <select id="f_project_name" class="form-select">
+          <option value="">-- Select Project / Organisation --</option>
+          <?php foreach ($orgs_arr as $org):
+          $sel = ($edit_row && $edit_row['project_name'] == $org['org_name']) ? 'selected' : '';
+          ?>
+          <option value="<?= htmlspecialchars($org['org_name']) ?>" <?= $sel ?>>
+            <?= htmlspecialchars($org['org_name']) ?>
+          </option>
+          <?php endforeach; ?>
+        </select>
       </div>
 
       <div class="form-group">
         <label>Acquisition Type</label>
         <select id="f_acquisition_type" class="form-select">
           <option value="">-- Select Type --</option>
-          <?php foreach (['Donation','Purchase','Lease','Transfer','Grant','Other'] as $at):
-          $sel = ($edit_row && $edit_row['acquisition_type'] == $at) ? 'selected' : ''; ?>
-          <option value="<?= $at ?>" <?= $sel ?>><?= $at ?></option>
+          <?php foreach ($acqs_arr as $acq):
+          $sel = ($edit_row && $edit_row['acquisition_type'] == $acq['acq_name']) ? 'selected' : '';
+          ?>
+          <option value="<?= htmlspecialchars($acq['acq_name']) ?>" <?= $sel ?>>
+            <?= htmlspecialchars($acq['acq_name']) ?>
+          </option>
           <?php endforeach; ?>
         </select>
       </div>
@@ -870,7 +901,11 @@ tbody td{padding:9px 12px;vertical-align:middle;}
       <div class="form-group">
         <label>Date of Disposal (if applicable)</label>
         <input type="date" id="f_date_of_disposal" class="form-control"
+               oninput="validateDisposalDate()"
                value="<?= $edit_row ? htmlspecialchars($edit_row['date_of_disposal'] ?? '') : '' ?>">
+        <small id="disposalDateErr" style="color:var(--red);font-size:11px;display:none">
+          <i class="fas fa-exclamation-circle"></i> Disposal date cannot be before acquisition date.
+        </small>
       </div>
 
       <div class="form-group">
@@ -929,9 +964,15 @@ tbody td{padding:9px 12px;vertical-align:middle;}
       <input type="text" id="searchInput" placeholder="🔍 Search name, model, serial, funder…"
              oninput="filterTable()">
       <select id="filterCategory" onchange="filterTable()">
-        <option value="">All Categories</option>
-        <?php foreach ($cats as $cat): ?>
-        <option value="<?= $cat ?>"><?= $cat ?></option>
+        <option value="">All asset_categories</option>
+        <?php foreach ($cats_arr as $cat): ?>
+        <option value="<?= htmlspecialchars($cat['category_name']) ?>"><?= htmlspecialchars($cat['category_name']) ?></option>
+        <?php endforeach; ?>
+      </select>
+      <select id="filterFunder" onchange="filterTable()">
+        <option value="">All Funders</option>
+        <?php foreach ($funders_arr as $fn): ?>
+        <option value="<?= htmlspecialchars($fn['dig_funder_name']) ?>"><?= htmlspecialchars($fn['dig_funder_name']) ?></option>
         <?php endforeach; ?>
       </select>
       <select id="filterCondition" onchange="filterTable()">
@@ -943,6 +984,7 @@ tbody td{padding:9px 12px;vertical-align:middle;}
       </select>
     </div>
 
+    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Showing <span id="assetCount"><?= count($assets_list) ?></span> record(s)</div>
     <div class="tbl-wrap">
     <table id="assetTable">
       <thead>
@@ -953,9 +995,9 @@ tbody td{padding:9px 12px;vertical-align:middle;}
           <th>Model</th>
           <th>Serial No.</th>
           <th>Date Acquired</th>
-          <th>Purchase Value</th>
+          <th>Purchase Value (KES)</th>
           <th>Dep %</th>
-          <th>Current Value</th>
+          <th>Current Value (KES)</th>
           <th>LPO No.</th>
           <th>Funder</th>
           <th>Project</th>
@@ -967,7 +1009,8 @@ tbody td{padding:9px 12px;vertical-align:middle;}
       <tbody id="assetTbody">
       <?php foreach ($assets_list as $idx => $a): ?>
       <tr data-category="<?= htmlspecialchars($a['asset_category'] ?? '') ?>"
-          data-condition="<?= htmlspecialchars($a['current_condition']) ?>">
+          data-condition="<?= htmlspecialchars($a['current_condition']) ?>"
+          data-funder="<?= htmlspecialchars($a['dig_funder_name'] ?? '') ?>">
         <td><?= $idx + 1 ?></td>
         <td><strong><?= htmlspecialchars($a['asset_name']) ?></strong>
           <?php if ($a['description']): ?>
@@ -978,9 +1021,9 @@ tbody td{padding:9px 12px;vertical-align:middle;}
         <td><?= htmlspecialchars($a['model'] ?? '—') ?></td>
         <td><?= htmlspecialchars($a['serial_number'] ?? '—') ?></td>
         <td><?= htmlspecialchars($a['date_of_acquisition'] ?? '—') ?></td>
-        <td>KES <?= number_format((float)$a['purchase_value'], 2) ?></td>
+        <td><?= number_format((float)$a['purchase_value'], 2) ?></td>
         <td><?= htmlspecialchars($a['depreciation_percentage']) ?>%</td>
-        <td><strong style="color:var(--primary)">KES <?= number_format((float)$a['current_value'], 2) ?></strong></td>
+        <td><strong style="color:var(--primary)"><?= number_format((float)$a['current_value'], 2) ?></strong></td>
         <td><?= htmlspecialchars($a['lpo_number'] ?? '—') ?></td>
         <td><?= htmlspecialchars($a['dig_funder_name'] ?? '—') ?></td>
         <td><?= htmlspecialchars($a['project_name'] ?? '—') ?></td>
@@ -1149,11 +1192,11 @@ function calcCurrentValue(){
   }
 
   if(!pv){
-    document.getElementById('cvAmount').textContent='KES 0.00';
+    document.getElementById('cvAmount').textContent='0.00';
     return;
   }
   if(!dep||!dateStr){
-    document.getElementById('cvAmount').textContent='KES '+pv.toLocaleString('en-KE',{minimumFractionDigits:2});
+    document.getElementById('cvAmount').textContent=pv.toLocaleString('en-KE',{minimumFractionDigits:2});
     return;
   }
   const d=new Date(dateStr), now=new Date();
@@ -1163,11 +1206,19 @@ function calcCurrentValue(){
   if(cv<0)cv=0;
   cv=Math.round(cv*100)/100;
   document.getElementById('cvAmount').textContent=
-    'KES '+cv.toLocaleString('en-KE',{minimumFractionDigits:2});
+    cv.toLocaleString('en-KE',{minimumFractionDigits:2});
 }
 
 // ── Save asset ──────────────────────────────────────────────────────
 async function saveAsset(){
+  // Validate dates before saving
+  const acqVal = document.getElementById('f_date_of_acquisition').value;
+  if (acqVal && acqVal > '<?= date("Y-m-d") ?>') {
+    showToast('Acquisition date cannot be in the future.', 'error'); return;
+  }
+  if (!validateDisposalDate()) {
+    showToast('Disposal date cannot be before acquisition date.', 'error'); return;
+  }
   const name=document.getElementById('f_asset_name').value.trim();
   const pv=document.getElementById('f_purchase_value').value;
   if(!name){showToast('Asset name is required.','error');return;}
@@ -1211,15 +1262,19 @@ async function saveAsset(){
 // ── Reset form ──────────────────────────────────────────────────────
 function resetForm(){
   ['f_asset_name','f_description','f_model','f_serial_number','f_date_of_acquisition',
-   'f_age_at_acquisition','f_purchase_value','f_depreciation_percentage','f_lpo_number',
-   'f_dig_funder_name','f_project_name','f_date_of_disposal','f_comments'].forEach(id=>{
+   'f_age_at_acquisition','f_purchase_value','f_lpo_number',
+   'f_date_of_disposal','f_comments'].forEach(id=>{
     document.getElementById(id).value='';
   });
+  document.getElementById('f_depreciation_percentage').value='';
   document.getElementById('f_asset_category').value='';
+  document.getElementById('f_dig_funder_name').value='';
+  document.getElementById('f_project_name').value='';
   document.getElementById('f_acquisition_type').value='';
+  document.getElementById('disposalDateErr').style.display='none';
   document.getElementById('f_current_condition').value='Good';
   document.getElementById('f_asset_id').value='';
-  document.getElementById('cvAmount').textContent='KES 0.00';
+  document.getElementById('cvAmount').textContent='0.00';
   document.getElementById('depHint').style.display='none';
   document.getElementById('formTitle').textContent='Register New Asset';
   showToast('Form cleared.','success');
@@ -1253,116 +1308,80 @@ async function confirmDelete(){
   } catch(e){showToast('Network error.','error');}
 }
 
-// ── Table filter ────────────────────────────────────────────────────
-function filterTable(){
-  const q=document.getElementById('searchInput').value.toLowerCase();
-  const cat=document.getElementById('filterCategory').value.toLowerCase();
-  const cond=document.getElementById('filterCondition').value.toLowerCase();
-  document.querySelectorAll('#assetTbody tr').forEach(row=>{
-    const txt=row.textContent.toLowerCase();
-    const rCat=(row.dataset.category||'').toLowerCase();
-    const rCond=(row.dataset.condition||'').toLowerCase();
-    row.style.display=
-      (!q||txt.includes(q))&&(!cat||rCat===cat)&&(!cond||rCond===cond)?'':'none';
-  });
-}
+// ── Category change → auto-fill depreciation (readonly) ────────────────
+const CAT_DEP = <?= $cats_dep_js ?>;
 
-// ── Import ──────────────────────────────────────────────────────────
-const importDrop=document.getElementById('importDrop');
-if(importDrop){
-  importDrop.addEventListener('dragover',e=>{e.preventDefault();importDrop.classList.add('drag-over');});
-  importDrop.addEventListener('dragleave',()=>importDrop.classList.remove('drag-over'));
-  importDrop.addEventListener('drop',e=>{
-    e.preventDefault();importDrop.classList.remove('drag-over');
-    const f=e.dataTransfer.files[0];
-    if(f){
-      importFile=f;
-      document.getElementById('importFileName').textContent='📎 '+f.name;
-      document.getElementById('btnImport').disabled=false;
-    }
-  });
-}
-function onImportFileChange(input){
-  if(input.files.length){
-    importFile=input.files[0];
-    document.getElementById('importFileName').textContent='📎 '+importFile.name;
-    document.getElementById('btnImport').disabled=false;
-  }
-}
-async function importAssets(){
-  if(!importFile){showToast('Please select a file.','error');return;}
-  const btn=document.getElementById('btnImport');
-  const orig=btn.innerHTML;
-  btn.innerHTML='<i class="fas fa-spinner fa-spin"></i> Importing…';
-  btn.disabled=true;
-
-  const fd=new FormData();
-  fd.append('ajax_import','1');
-  fd.append('import_file',importFile);
-  try{
-    const data=await fetch(THIS_FILE,{method:'POST',body:fd}).then(r=>r.json());
-    const res=document.getElementById('importResult');
-    if(data.success){
-      let html=`<div class="alert alert-success">
-        <i class="fas fa-check-circle" style="font-size:1.3rem;flex-shrink:0"></i>
-        <div><strong>Import Complete!</strong><br>
-        ✅ ${data.imported} assets imported &nbsp;|&nbsp;
-        ⚠️ ${data.skipped} rows skipped</div></div>`;
-      if(data.errors&&data.errors.length){
-        html+=`<div class="alert alert-error"><i class="fas fa-exclamation-triangle"></i>
-          <div><strong>Notes:</strong><br>${data.errors.map(e=>`• ${e}`).join('<br>')}</div></div>`;
-      }
-      res.innerHTML=html;
-      if(data.imported>0) setTimeout(()=>window.location.reload(),2500);
+function onCategoryChange(catName) {
+    const dep = CAT_DEP[catName];
+    const field = document.getElementById('f_depreciation_percentage');
+    if (dep !== undefined && dep !== null) {
+        field.value = parseFloat(dep).toFixed(2);
+        document.getElementById('depHint').style.display = 'flex';
+        document.getElementById('depHintText').textContent =
+            catName + ': ' + parseFloat(dep).toFixed(2) + '% per annum';
     } else {
-      res.innerHTML=`<div class="alert alert-error">
-        <i class="fas fa-times-circle"></i> ${data.error}</div>`;
+        field.value = '';
+        document.getElementById('depHint').style.display = 'none';
     }
-  } catch(e){
-    document.getElementById('importResult').innerHTML=
-      `<div class="alert alert-error"><i class="fas fa-times-circle"></i> Network error.</div>`;
-  }
-  btn.innerHTML=orig;
-  btn.disabled=false;
-}
-
-function downloadTemplate(){
-  const headers=[
-    'asset_name','asset_category','description','model','serial_number',
-    'date_of_acquisition','age_at_time_of_acquisition','purchase_value',
-    'depreciation_percentage','lpo_number','dig_funder_name','project_name',
-    'acquisition_name','current_condition','date_of_disposal','comments'
-  ].join(',');
-  const sample=[
-    'Laptop','Computer and ICT Accessories','HP ProBook 430 G4','430 G4','5CD71608QM',
-    '2021-07-01','4','73259.46','33.33','PO-12345','Pathfinder International',
-    'Stawisha','Donation','Good','',''
-  ].join(',');
-  const blob=new Blob([headers+'\n'+sample],{type:'text/csv'});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');
-  a.href=url;a.download='asset_master_register_template.csv';
-  a.click();URL.revokeObjectURL(url);
-}
-
-// ── Init ─────────────────────────────────────────────────────────────
-<?php if ($edit_row): ?>
-showTab('form');
-document.getElementById('formTitle').textContent = 'Edit Asset';
-calcCurrentValue();
-<?php elseif (isset($_GET['tab'])): ?>
-showTab('<?= htmlspecialchars($_GET['tab']) ?>');
-<?php endif; ?>
-
-document.getElementById('f_asset_name')?.addEventListener('input', ()=>{
-  calcCurrentValue();
-  // Auto-fill depreciation hint
-  const nm=document.getElementById('f_asset_name').value.trim();
-  if(ASSET_TYPES[nm]&&!document.getElementById('f_depreciation_percentage').value){
-    document.getElementById('f_depreciation_percentage').value=ASSET_TYPES[nm];
     calcCurrentValue();
-  }
-});
+}
+
+// Pre-fill depreciation on page load if editing and category is set
+(function() {
+    const catSel = document.getElementById('f_asset_category');
+    if (catSel && catSel.value) {
+        const dep = CAT_DEP[catSel.value];
+        const field = document.getElementById('f_depreciation_percentage');
+        // Only set if field is empty (don't override existing edit value)
+        if (dep !== undefined && dep !== null && !field.value) {
+            field.value = parseFloat(dep).toFixed(2);
+        }
+    }
+})();
+
+// ── Date validation: disposal ≥ acquisition ─────────────────────────────
+function validateDisposalDate() {
+    const acq = document.getElementById('f_date_of_acquisition').value;
+    const dis = document.getElementById('f_date_of_disposal').value;
+    const err = document.getElementById('disposalDateErr');
+    if (acq && dis && dis < acq) {
+        err.style.display = 'block';
+        document.getElementById('f_date_of_disposal').style.borderColor = 'var(--red)';
+        return false;
+    }
+    if (err) err.style.display = 'none';
+    document.getElementById('f_date_of_disposal').style.borderColor = '';
+    return true;
+}
+
+// ── Table filter (name/model/serial + category + funder + condition) ──────
+function filterTable() {
+    const q    = document.getElementById('searchInput').value.toLowerCase();
+    const cat  = document.getElementById('filterCategory').value.toLowerCase();
+    const fund = document.getElementById('filterFunder').value.toLowerCase();
+    const cond = document.getElementById('filterCondition').value.toLowerCase();
+    const rows = document.querySelectorAll('#assetTbody tr');
+    let visible = 0;
+    rows.forEach(row => {
+        const txt   = row.textContent.toLowerCase();
+        const rCat  = (row.dataset.category  || '').toLowerCase();
+        const rCond = (row.dataset.condition || '').toLowerCase();
+        const rFund = (row.dataset.funder    || '').toLowerCase();
+        const matchQ = !q    || txt.includes(q);
+        const matchC = !cat  || rCat  === cat;
+        const matchF = !fund || rFund === fund;
+        const matchD = !cond || rCond === cond;
+        const show   = matchQ && matchC && matchF && matchD;
+        row.style.display = show ? '' : 'none';
+        if (show) visible++;
+    });
+    const counter = document.getElementById('assetCount');
+    if (counter) counter.textContent = visible + ' record(s)';
+}
+
+// ── Override saveAsset to validate dates first ──────────────────────────
+const _origSave = typeof saveAsset === 'function' ? saveAsset : null;
+
 </script>
 </body>
 </html>

@@ -346,17 +346,17 @@ if (isset($_POST['ajax_csv_import'])) {
         $lat_c   = is_numeric($fac_row['latitude'])  ? (float)$fac_row['latitude']  : 'NULL';
         $lng_c   = is_numeric($fac_row['longitude']) ? (float)$fac_row['longitude'] : 'NULL';
 
-        // Lookup asset type
+        // Lookup asset type — from asset_master_register
         $asset_row = mysqli_fetch_assoc(mysqli_query($conn,
-            "SELECT dit_asset_name, depreciation_percentage
-             FROM digital_investments_assets WHERE dit_asset_name='$asset_name_csv' LIMIT 1"));
+            "SELECT asset_name, depreciation_percentage
+             FROM asset_master_register WHERE asset_name='$asset_name_csv' AND is_active=1 LIMIT 1"));
         if (!$asset_row) {
             $skipped++;
-            if (count($errors) < 20) $errors[] = "Row $rownum: asset type '$asset_name_csv' not found in catalog";
+            if (count($errors) < 20) $errors[] = "Row $rownum: asset type '$asset_name_csv' not found in asset register";
             continue;
         }
 
-        $asset_name_s = $e($asset_row['dit_asset_name']);
+        $asset_name_s = $e($asset_row['asset_name']);
         $dep_pct      = (float)$asset_row['depreciation_percentage'];
 
         // ── Duplicate check ──────────────────────────────────────────────
@@ -540,10 +540,10 @@ if (isset($_POST['ajax_excel_import'])) {
         $lat_up    = is_numeric($fac_up['latitude'])  ? (float)$fac_up['latitude']  : 'NULL';
         $lng_up    = is_numeric($fac_up['longitude']) ? (float)$fac_up['longitude'] : 'NULL';
 
-        // Lookup asset type
+        // Lookup asset type — from asset_master_register
         $arow_up = mysqli_fetch_assoc(mysqli_query($conn,
-            "SELECT dit_asset_name, depreciation_percentage FROM digital_investments_assets WHERE dit_asset_name='$r_asset_up' LIMIT 1"));
-        if (!$arow_up) { $skipped_up++; $errors_up[] = "Row ".($ridx_up+2).": asset type '$r_asset_up' not found"; continue; }
+            "SELECT asset_name, depreciation_percentage FROM asset_master_register WHERE asset_name='$r_asset_up' AND is_active=1 LIMIT 1"));
+        if (!$arow_up) { $skipped_up++; $errors_up[] = "Row ".($ridx_up+2).": asset type '$r_asset_up' not found in asset register"; continue; }
 
         $dep_up  = (float)$arow_up['depreciation_percentage'];
         $diff_up = mysqli_fetch_assoc(mysqli_query($conn, "SELECT TIMESTAMPDIFF(MONTH,'$r_idate_up',NOW()) AS m"));
@@ -606,7 +606,7 @@ if (isset($_POST['ajax_excel_import'])) {
 // ────────────────────────────────────────────────────────────────────
 //  LOAD DROPDOWNS
 // ────────────────────────────────────────────────────────────────────
-$assets_res   = mysqli_query($conn, "SELECT dig_id, dit_asset_name, depreciation_percentage FROM digital_investments_assets ORDER BY dit_asset_name");
+$assets_res   = mysqli_query($conn, "SELECT asset_id AS dig_id, asset_name AS dit_asset_name, depreciation_percentage FROM asset_master_register WHERE is_active=1 ORDER BY asset_name");
 $funders_res  = mysqli_query($conn, "SELECT dig_funder_id, dig_funder_name FROM digital_funders ORDER BY dig_funder_name");
 $sdps_res     = mysqli_query($conn, "SELECT sdp_id, sdp_name FROM service_delivery_points ORDER BY sdp_name");
 $emr_res      = mysqli_query($conn, "SELECT emr_type_id, emr_type_name FROM emr_types ORDER BY emr_type_name");
@@ -639,6 +639,15 @@ $list_res = mysqli_query($conn, "
 ");
 $investments = [];
 while ($r = mysqli_fetch_assoc($list_res)) $investments[] = $r;
+
+// Pre-compute stats variables (used in tab badge AND stats bar)
+$s_total  = (int)($stats_row['total_records']    ?? 0);
+$s_fac    = (int)($stats_row['total_facilities'] ?? 0);
+$s_active = (int)($stats_row['active_count']     ?? 0);
+$s_pv     = (float)($stats_row['total_pv']       ?? 0);
+$s_cv     = (float)($stats_row['total_cv']       ?? 0);
+$s_tc     = (float)($stats_row['total_tc']       ?? 0);
+$s_dep    = max(0, $s_pv - $s_cv);
 
 // Edit pre-fill
 $edit_row = null;
@@ -907,7 +916,7 @@ tbody td{padding:9px 12px;vertical-align:middle;}
     <button class="tab-btn" id="tab_list" onclick="showTab('list')">
         <i class="fas fa-table"></i> All Investments
         <span style="background:var(--primary);color:#fff;border-radius:20px;padding:1px 8px;font-size:11px;margin-left:4px">
-            <?= number_format($s_total) ?>
+            <?= ($s_total)?>
         </span>
     </button>
     <button class="tab-btn" id="tab_csv" onclick="showTab('csv')">
@@ -920,16 +929,7 @@ tbody td{padding:9px 12px;vertical-align:middle;}
 
 <div id="globalAlert"></div>
 
-<!-- ── SUMMARY STATS BAR ─────────────────────────────────────────────── -->
-<?php
-$s_total     = (int)($stats_row['total_records']   ?? 0);
-$s_fac       = (int)($stats_row['total_facilities'] ?? 0);
-$s_active    = (int)($stats_row['active_count']    ?? 0);
-$s_pv        = (float)($stats_row['total_pv']      ?? 0);
-$s_cv        = (float)($stats_row['total_cv']      ?? 0);
-$s_tc        = (float)($stats_row['total_tc']      ?? 0);
-$s_dep       = max(0, $s_pv - $s_cv);
-?>
+<!-- ── SUMMARY STATS BAR (variables set above near list query) ── -->
 <div class="stats-bar">
     <div class="stat-card">
         <div class="stat-icon" style="background:#e8deff;color:var(--primary)"><i class="fas fa-laptop-medical"></i></div>
@@ -1313,8 +1313,17 @@ $s_dep       = max(0, $s_pv - $s_cv);
     </div>
     <div class="card-body">
         <div class="filter-bar">
-            <input type="text" id="searchInput" placeholder="🔍  Search facility, asset…"
+            <input type="text" id="searchInput" placeholder="🔍  Search facility, asset, county…"
                    oninput="filterTable()">
+            <select id="filterFunder" onchange="filterTable()">
+                <option value="">All Funders</option>
+                <?php foreach ($funders as $fn): ?>
+                <option value="<?= htmlspecialchars($fn['dig_funder_name']) ?>"
+                    <?= (isset($_GET['funder']) && $_GET['funder']==$fn['dig_funder_name']) ? 'selected' : '' ?>>
+                    <?= htmlspecialchars($fn['dig_funder_name']) ?>
+                </option>
+                <?php endforeach; ?>
+            </select>
             <select id="filterStatus" onchange="filterTable()">
                 <option value="">All Statuses</option>
                 <option value="Active">Active</option>
@@ -1327,6 +1336,7 @@ $s_dep       = max(0, $s_pv - $s_cv);
             </select>
         </div>
 
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Showing <span id="visibleCount"><?= count($investments) ?></span> record(s)</div>
         <div class="tbl-wrap">
         <table id="investTable">
             <thead>
@@ -1359,7 +1369,8 @@ $s_dep       = max(0, $s_pv - $s_cv);
             <tbody id="investTbody">
             <?php foreach ($investments as $idx => $inv): ?>
             <tr data-status="<?= htmlspecialchars($inv['invest_status']) ?>"
-                data-level="<?= htmlspecialchars($inv['service_level']) ?>">
+                data-level="<?= htmlspecialchars($inv['service_level']) ?>"
+                data-funder="<?= htmlspecialchars($inv['dig_funder_name'] ?? '') ?>">
                 <td><?= $idx + 1 ?></td>
                 <td><strong><?= htmlspecialchars($inv['facility_name']) ?></strong>
                     <br><small style="color:var(--muted)"><?= htmlspecialchars($inv['county_name'] ?? '') ?></small></td>
@@ -1982,18 +1993,26 @@ async function confirmDelete() {
 // ── Table filter ────────────────────────────────────────────────────────
 function filterTable() {
     const q      = document.getElementById('searchInput').value.toLowerCase();
+    const funder = document.getElementById('filterFunder').value.toLowerCase();
     const status = document.getElementById('filterStatus').value.toLowerCase();
     const level  = document.getElementById('filterLevel').value.toLowerCase();
     const rows   = document.querySelectorAll('#investTbody tr');
+    let visible  = 0;
     rows.forEach(row => {
         const txt    = row.textContent.toLowerCase();
         const rStat  = (row.dataset.status||'').toLowerCase();
         const rLevel = (row.dataset.level||'').toLowerCase();
-        const matchQ = !q || txt.includes(q);
-        const matchS = !status || rStat === status;
+        const rFund  = (row.dataset.funder||'').toLowerCase();
+        const matchQ = !q      || txt.includes(q);
+        const matchF = !funder || rFund === funder;
+        const matchS = !status || rStat  === status;
         const matchL = !level  || rLevel === level;
-        row.style.display = (matchQ && matchS && matchL) ? '' : 'none';
+        const show   = matchQ && matchF && matchS && matchL;
+        row.style.display = show ? '' : 'none';
+        if (show) visible++;
     });
+    const counter = document.getElementById('visibleCount');
+    if (counter) counter.textContent = visible + ' record(s)';
 }
 
 // ── Excel / xlsx import ──────────────────────────────────────
