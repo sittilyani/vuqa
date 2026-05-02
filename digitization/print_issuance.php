@@ -51,7 +51,7 @@ $cert_no    = 'AI-' . str_pad($invest_id, 5, '0', STR_PAD_LEFT);
 body{font-family:'Inter',system-ui,sans-serif;background:#f5f3fb;color:#1a1a2e;font-size:13px}
 .page{background:#fff;max-width:820px;margin:30px auto;padding:0;box-shadow:0 4px 24px rgba(45,0,138,.12);border-radius:8px;overflow:hidden;position:relative}
 /* HEADER */
-.cert-header{background:linear-gradient(135deg,#2D008A,#AC80EE);color:#fff;padding:28px 36px 20px;display:flex;justify-content:space-between;align-items:flex-start}
+.cert-header{color:#2D008A;padding:28px 36px 20px;display:flex;justify-content:space-between;align-items:flex-start}
 .cert-header .org h1{font-size:1.3rem;font-weight:700;letter-spacing:.3px}
 .cert-header .org p{font-size:.8rem;opacity:.85;margin-top:4px}
 .cert-header .cert-info{text-align:right}

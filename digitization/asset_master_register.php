@@ -959,14 +959,20 @@ tbody td{padding:9px 12px;vertical-align:middle;}
           <th>Project</th>
           <th>Acq. Type</th>
           <th>Condition</th>
+          <th>Status</th>
           <th>Actions</th>
         </tr>
       </thead>
       <tbody id="assetTbody">
       <?php foreach ($assets_list as $idx => $a): ?>
+      <?php
+        $aStatus = $a['asset_status'] ?? 'In Stock';
+        $isInStock = ($aStatus === 'In Stock' || $aStatus === '');
+      ?>
       <tr data-category="<?= htmlspecialchars($a['asset_category'] ?? '') ?>"
           data-condition="<?= htmlspecialchars($a['current_condition']) ?>"
-          data-funder="<?= htmlspecialchars($a['dig_funder_name'] ?? '') ?>">
+          data-funder="<?= htmlspecialchars($a['dig_funder_name'] ?? '') ?>"
+          data-status="<?= htmlspecialchars($aStatus) ?>">
         <td><?= $idx + 1 ?></td>
         <td><span style="background:var(--pink);color:var(--primary);padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700">
           <?= htmlspecialchars($a['asset_category'] ?? '—') ?>
@@ -989,16 +995,29 @@ tbody td{padding:9px 12px;vertical-align:middle;}
           ?>
           <span class="badge <?= $bc[$cond] ?? 'badge-good' ?>"><?= htmlspecialchars($cond) ?></span>
         </td>
+        <td>
+          <?php if ($isInStock): ?>
+          <span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;background:#d4f7e6;color:#04B04B">
+            In Stock
+          </span>
+          <?php else: ?>
+          <span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;background:#e8deff;color:#2D008A">
+            <?= htmlspecialchars($aStatus) ?>
+          </span>
+          <?php endif; ?>
+        </td>
         <td style="white-space:nowrap">
           <a href="?edit=<?= $a['asset_id'] ?>" class="btn btn-amber"
              style="padding:5px 10px;font-size:11px">
             <i class="fas fa-edit"></i> Edit
           </a>
+          <?php if ($isInStock): ?>
           <a href="assets_issuance.php?issue=<?= $a['asset_id'] ?>"
              class="btn btn-green" style="padding:5px 10px;font-size:11px"
              title="Issue this asset to a facility">
             <i class="fas fa-paper-plane"></i> Issue
           </a>
+          <?php endif; ?>
           <button class="btn btn-red" style="padding:5px 10px;font-size:11px"
                   onclick="deleteAsset(<?= $a['asset_id'] ?>, '<?= htmlspecialchars($a['description'] ?? '', ENT_QUOTES) ?>')">
             <i class="fas fa-trash"></i>
@@ -1007,7 +1026,7 @@ tbody td{padding:9px 12px;vertical-align:middle;}
       </tr>
       <?php endforeach; ?>
       <?php if (empty($assets_list)): ?>
-      <tr><td colspan="15" style="text-align:center;color:var(--muted);padding:30px">
+      <tr><td colspan="16" style="text-align:center;color:var(--muted);padding:30px">
         <i class="fas fa-inbox" style="font-size:2rem;display:block;margin-bottom:8px"></i>
         No assets yet. Click <strong>Add Asset</strong> or <strong>Import</strong> to get started.
       </td></tr>
@@ -1285,7 +1304,8 @@ function validateDisposalDate() {
   return true;
 }
 
-// ── Table filter ─────────────────────────────────────────────────────
+// ── Table filter (max 30 visible rows) ───────────────────────────────
+const MAX_ROWS = 30;
 function filterTable() {
   const q    = document.getElementById('searchInput').value.toLowerCase();
   const cat  = document.getElementById('filterCategory').value.toLowerCase();
@@ -1294,20 +1314,24 @@ function filterTable() {
   const rows = document.querySelectorAll('#assetTbody tr');
   let visible = 0;
   rows.forEach(row => {
+    if (row.cells.length < 2) return; // skip empty-state row
     const txt   = row.textContent.toLowerCase();
     const rCat  = (row.dataset.category  || '').toLowerCase();
     const rCond = (row.dataset.condition || '').toLowerCase();
     const rFund = (row.dataset.funder    || '').toLowerCase();
-    const show  = (!q || txt.includes(q)) &&
-                  (!cat  || rCat  === cat)  &&
-                  (!fund || rFund === fund) &&
-                  (!cond || rCond === cond);
+    const matches = (!q || txt.includes(q)) &&
+                    (!cat  || rCat  === cat)  &&
+                    (!fund || rFund === fund) &&
+                    (!cond || rCond === cond);
+    const show = matches && visible < MAX_ROWS;
     row.style.display = show ? '' : 'none';
     if (show) visible++;
   });
   const counter = document.getElementById('assetCount');
-  if (counter) counter.textContent = visible + ' record(s)';
+  if (counter) counter.textContent = visible + (visible === MAX_ROWS ? ' of ' + MAX_ROWS + ' shown (use filters to narrow)' : ' record(s)');
 }
+// Run on page load to enforce the 30-row limit immediately
+document.addEventListener('DOMContentLoaded', filterTable);
 
 // ── Import ───────────────────────────────────────────────────────────
 function onImportFileChange(input) {
