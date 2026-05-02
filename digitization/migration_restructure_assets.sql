@@ -1,83 +1,61 @@
 -- ============================================================
---  LVCT Health — Asset Restructure Migration
+--  LVCT Health — Asset Master Register Restructure Migration
 --  Run ONCE against the `transition` database
 --  Generated: 2026-05-01
 --
---  Changes:
---   1. asset_master_register  → add category_id FK,
---                               drop asset_name, asset_category (text),
---                               drop depreciation_percentage (now via JOIN)
---   2. digital_investments_assets → simplify to category_id + description only
+--  Change summary for asset_master_register:
+--   • ADD  category_id  INT FK → asset_categories
+--   • DROP asset_name   only
+--   • KEEP asset_category (text), depreciation_percentage,
+--          and all other existing columns unchanged
 -- ============================================================
 
 SET SQL_MODE   = "NO_AUTO_VALUE_ON_ZERO";
 SET time_zone  = "+03:00";
 SET FOREIGN_KEY_CHECKS = 0;
 
--- ── STEP 1: Add category_id to asset_master_register ─────────────────
+-- ── STEP 1: Add category_id column ───────────────────────────────────
 ALTER TABLE `asset_master_register`
   ADD COLUMN `category_id` INT UNSIGNED DEFAULT NULL
       COMMENT 'FK → asset_categories.category_id'
       AFTER `asset_id`,
   ADD INDEX `idx_amr_cat_id` (`category_id`);
 
--- ── STEP 2: Populate category_id from existing text match ─────────────
+-- ── STEP 2: Populate category_id from existing asset_category text ───
 UPDATE `asset_master_register` amr
 JOIN   `asset_categories` ac ON amr.asset_category = ac.category_name
 SET    amr.category_id = ac.category_id;
 
--- ── STEP 3: Add FK constraint ─────────────────────────────────────────
+-- ── STEP 3: Also sync depreciation_percentage from asset_categories ──
+--  (ensures stored value matches the category rate)
+UPDATE `asset_master_register` amr
+JOIN   `asset_categories` ac ON amr.category_id = ac.category_id
+SET    amr.depreciation_percentage = ac.depreciation_percentage;
+
+-- ── STEP 4: Add FK constraint ─────────────────────────────────────────
 ALTER TABLE `asset_master_register`
   ADD CONSTRAINT `fk_amr_category`
       FOREIGN KEY (`category_id`)
       REFERENCES `asset_categories` (`category_id`)
       ON DELETE SET NULL ON UPDATE CASCADE;
 
--- ── STEP 4: Drop old denormalised columns ─────────────────────────────
+-- ── STEP 5: Drop asset_name only ─────────────────────────────────────
 ALTER TABLE `asset_master_register`
-  DROP COLUMN `asset_name`,
-  DROP COLUMN `asset_category`,
-  DROP COLUMN `depreciation_percentage`;
--- NOTE: current_value stays — it is recalculated via JOIN on page load.
+  DROP COLUMN `asset_name`;
 
--- ── STEP 5: Restructure digital_investments_assets ────────────────────
-ALTER TABLE `digital_investments_assets`
-  ADD COLUMN `category_id` INT UNSIGNED DEFAULT NULL
-      COMMENT 'FK → asset_categories.category_id'
-      AFTER `dig_id`,
-  ADD INDEX `idx_dia_cat_id` (`category_id`);
-
--- ── STEP 6: Populate category_id from existing text match ─────────────
-UPDATE `digital_investments_assets` dia
-JOIN   `asset_categories` ac ON dia.asset_category = ac.category_name
-SET    dia.category_id = ac.category_id;
-
--- ── STEP 7: Add FK constraint ─────────────────────────────────────────
-ALTER TABLE `digital_investments_assets`
-  ADD CONSTRAINT `fk_dia_category`
-      FOREIGN KEY (`category_id`)
-      REFERENCES `asset_categories` (`category_id`)
-      ON DELETE SET NULL ON UPDATE CASCADE;
-
--- ── STEP 8: Drop old columns from digital_investments_assets ──────────
-ALTER TABLE `digital_investments_assets`
-  DROP COLUMN `dit_asset_name`,
-  DROP COLUMN `depreciation_percentage`,
-  DROP COLUMN `asset_category`,
-  DROP COLUMN `is_active`,
-  DROP COLUMN `created_at`,
-  DROP COLUMN `updated_at`;
-
--- Final structure of digital_investments_assets:
---   dig_id        INT UNSIGNED  PK AUTO_INCREMENT
---   category_id   INT UNSIGNED  FK → asset_categories
---   description   TEXT          (specific item label, e.g. "HP ProBook 430 G4")
+-- All other columns remain:
+--   asset_id, category_id (new FK), asset_category (text kept),
+--   description, model, serial_number, date_of_acquisition,
+--   age_at_acquisition, purchase_value, depreciation_percentage (kept),
+--   current_value, lpo_number, dig_funder_name, project_name,
+--   acquisition_type, current_condition, date_of_disposal,
+--   comments, is_active, created_by, created_at, updated_at
 
 SET FOREIGN_KEY_CHECKS = 1;
 
--- ── VERIFICATION QUERIES (run after migration) ────────────────────────
--- SELECT category_id, COUNT(*) FROM asset_master_register GROUP BY category_id;
--- SELECT category_id, COUNT(*) FROM digital_investments_assets GROUP BY category_id;
--- SELECT amr.asset_id, amr.description, ac.category_name, ac.depreciation_percentage
---   FROM asset_master_register amr
---   LEFT JOIN asset_categories ac ON amr.category_id = ac.category_id LIMIT 10;
+-- ── VERIFICATION (run after migration) ───────────────────────────────
+-- SELECT amr.asset_id, amr.category_id, ac.category_name,
+--        amr.asset_category, amr.depreciation_percentage, amr.description
+-- FROM asset_master_register amr
+-- LEFT JOIN asset_categories ac ON amr.category_id = ac.category_id
+-- LIMIT 10;

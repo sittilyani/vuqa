@@ -445,9 +445,9 @@ if (!$isAllowed) {
                         </a>
                     </div>
                     <div class="nav-item">
-                        <a href="../digitization/digital_innovation_investments.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
+                        <a href="../digitization/assets_issuance.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
                             <img src="../assets/fontawesome/svgs-full/solid/box.svg" alt="" width="16" height="16" style="filter:invert(1)">
-                            Digital Registration
+                            Issue Assets
                         </a>
                     </div>
                     <div class="nav-item">

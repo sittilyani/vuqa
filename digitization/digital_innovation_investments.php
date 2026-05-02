@@ -285,14 +285,21 @@ if (isset($_POST['ajax_csv_import'])) {
         fgetcsv($handle)
     );
     $hdr_cnt   = count($headers);
-    $required  = ['facility_name','dit_asset_name','purchase_value','issue_date','service_level'];
+    $required  = ['facility_name','category_name','description','purchase_value','issue_date','service_level'];
     $missing   = array_diff($required, $headers);
     if (!empty($missing)) {
         fclose($handle);
         echo json_encode(['success' => false,
             'error' => 'Missing required columns: ' . implode(', ', $missing) .
-                       '. Detected: ' . implode(', ', array_filter($headers))]);
+                       '. Required: facility_name, category_name, description, purchase_value, issue_date, service_level']);
         exit();
+    }
+
+    // Pre-load category lookup once
+    $cat_lkp_csv = [];
+    $cl_res_csv = mysqli_query($conn, "SELECT category_id, category_name, depreciation_percentage FROM asset_categories");
+    while ($cl_csv = mysqli_fetch_assoc($cl_res_csv)) {
+        $cat_lkp_csv[strtolower(trim($cl_csv['category_name']))] = $cl_csv;
     }
 
     $imported = 0; $skipped = 0; $errors = [];
@@ -301,32 +308,30 @@ if (isset($_POST['ajax_csv_import'])) {
 
     while (($row = fgetcsv($handle)) !== false) {
         $rownum++;
-        // Skip blank rows silently
         if (!array_filter($row, fn($v) => $v !== null && trim((string)$v) !== '')) continue;
 
-        // FIX: truncate excess columns then pad short rows before array_combine
         $row_safe = array_pad(array_slice($row, 0, $hdr_cnt), $hdr_cnt, '');
         $data = @array_combine($headers, $row_safe);
         if ($data === false) { $skipped++; continue; }
 
-        // Skip repeated header rows
         if (strtolower(trim($data['facility_name'] ?? '')) === 'facility_name') { $skipped++; continue; }
 
-        $fname          = $e($data['facility_name']  ?? '');
-        $asset_name_csv = $e($data['dit_asset_name'] ?? '');
-        $pv_raw         = preg_replace('/[^\d.]/', '', (string)($data['purchase_value'] ?? ''));
-        $pv             = is_numeric($pv_raw) ? (float)$pv_raw : null;
-        $idate          = $e($data['issue_date']     ?? '');
-        $slevel         = $e($data['service_level']  ?? '');
+        $fname        = $e($data['facility_name']  ?? '');
+        $cat_csv_raw  = trim((string)($data['category_name'] ?? ''));
+        $asset_name_csv = $e($data['description'] ?? '');   // description is the asset label
+        $pv_raw       = preg_replace('/[^\d.]/', '', (string)($data['purchase_value'] ?? ''));
+        $pv           = is_numeric($pv_raw) ? (float)$pv_raw : null;
+        $idate        = $e($data['issue_date']    ?? '');
+        $slevel       = $e($data['service_level'] ?? '');
 
-        if (!$fname || !$asset_name_csv || $pv === null || !$idate || !$slevel) {
+        if (!$fname || !$cat_csv_raw || !$asset_name_csv || $pv === null || !$idate || !$slevel) {
             $skipped++;
             if (count($errors) < 10)
-                $errors[] = "Row $rownum: missing required field(s) — facility='$fname' asset='$asset_name_csv' pv='$pv_raw' date='$idate'";
+                $errors[] = "Row $rownum: missing required field(s) — facility='$fname' category='$cat_csv_raw' description='$asset_name_csv'";
             continue;
         }
 
-        // Lookup facility by MFL code first, then name
+        // Lookup facility
         $mfl_csv = $e($data['mflcode'] ?? '');
         $fac_row = mysqli_fetch_assoc(mysqli_query($conn,
             "SELECT facility_id, facility_name, mflcode, county_name, subcounty_name, latitude, longitude
@@ -341,23 +346,20 @@ if (isset($_POST['ajax_csv_import'])) {
         $fid     = (int)$fac_row['facility_id'];
         $fname   = $e($fac_row['facility_name']);
         $mfl     = $e($fac_row['mflcode']        ?? '');
-        $county  = $e($fac_row['county_name']    ?? ($data['county_name']    ?? ''));
-        $subcnty = $e($fac_row['subcounty_name'] ?? ($data['subcounty_name'] ?? ''));
+        $county  = $e($fac_row['county_name']    ?? '');
+        $subcnty = $e($fac_row['subcounty_name'] ?? '');
         $lat_c   = is_numeric($fac_row['latitude'])  ? (float)$fac_row['latitude']  : 'NULL';
         $lng_c   = is_numeric($fac_row['longitude']) ? (float)$fac_row['longitude'] : 'NULL';
 
-        // Lookup asset type — from asset_master_register
-        $asset_row = mysqli_fetch_assoc(mysqli_query($conn,
-            "SELECT asset_name, depreciation_percentage
-             FROM asset_master_register WHERE asset_name='$asset_name_csv' AND is_active=1 LIMIT 1"));
-        if (!$asset_row) {
+        // Lookup category → depreciation_percentage from asset_categories
+        $cat_key_csv = strtolower($cat_csv_raw);
+        if (!isset($cat_lkp_csv[$cat_key_csv])) {
             $skipped++;
-            if (count($errors) < 20) $errors[] = "Row $rownum: asset type '$asset_name_csv' not found in asset register";
+            if (count($errors) < 20) $errors[] = "Row $rownum: category '$cat_csv_raw' not found in asset_categories";
             continue;
         }
-
-        $asset_name_s = $e($asset_row['asset_name']);
-        $dep_pct      = (float)$asset_row['depreciation_percentage'];
+        $dep_pct      = (float)$cat_lkp_csv[$cat_key_csv]['depreciation_percentage'];
+        $asset_name_s = $asset_name_csv;
 
         // ── Duplicate check ──────────────────────────────────────────────
         $tag_chk  = $e($data['tag_name'] ?? '');
@@ -479,12 +481,20 @@ if (isset($_POST['ajax_excel_import'])) {
         exit();
     }
 
-    $required_up = ['facility_name', 'dit_asset_name', 'purchase_value', 'issue_date', 'service_level'];
+    $required_up = ['facility_name', 'category_name', 'description', 'purchase_value', 'issue_date', 'service_level'];
     $missing_up  = array_diff($required_up, $raw_hdr);
     if (!empty($missing_up)) {
         echo json_encode(['success' => false,
-            'error' => 'Missing columns: ' . implode(', ', $missing_up)]);
+            'error' => 'Missing columns: ' . implode(', ', $missing_up) .
+                       '. Required: facility_name, category_name, description, purchase_value, issue_date, service_level']);
         exit();
+    }
+
+    // Pre-load category lookup: lower(category_name) => [category_id, depreciation_percentage]
+    $cat_lkp_up = [];
+    $cl_res = mysqli_query($conn, "SELECT category_id, category_name, depreciation_percentage FROM asset_categories");
+    while ($cl = mysqli_fetch_assoc($cl_res)) {
+        $cat_lkp_up[strtolower(trim($cl['category_name']))] = $cl;
     }
 
     $parse_date_up = function($v) {
@@ -511,19 +521,20 @@ if (isset($_POST['ajax_excel_import'])) {
         $data_up     = @array_combine($raw_hdr, $row_safe_up);
         if ($data_up === false) { $skipped_up++; continue; }
 
-        $r_fname_up    = $e($data_up['facility_name']   ?? '');
-        $r_asset_up    = $e($data_up['dit_asset_name']  ?? '');
-        $r_pv_up_raw   = $data_up['purchase_value']     ?? 0;
+        $r_fname_up    = $e($data_up['facility_name']  ?? '');
+        $r_cat_up_raw  = trim((string)($data_up['category_name'] ?? ''));
+        $r_asset_up    = $e($data_up['description']   ?? '');   // description is the asset label
+        $r_pv_up_raw   = $data_up['purchase_value']   ?? 0;
         $r_idate_up    = $parse_date_up($data_up['issue_date'] ?? '');
-        $r_slevel_up   = $e($data_up['service_level']   ?? '');
+        $r_slevel_up   = $e($data_up['service_level'] ?? '');
 
         $r_pv_up_clean = preg_replace('/[^\d.]/', '', (string)$r_pv_up_raw);
-        if (!$r_fname_up || !$r_asset_up || !is_numeric($r_pv_up_clean) || !$r_idate_up || !$r_slevel_up) {
+        if (!$r_fname_up || !$r_cat_up_raw || !$r_asset_up || !is_numeric($r_pv_up_clean) || !$r_idate_up || !$r_slevel_up) {
             $skipped_up++; continue;
         }
 
         $r_pv_up = (float)$r_pv_up_clean;
-        $r_mfl_up  = $e($data_up['mflcode'] ?? '');
+        $r_mfl_up = $e($data_up['mflcode'] ?? '');
 
         // Lookup facility
         $fac_up = mysqli_fetch_assoc(mysqli_query($conn,
@@ -532,20 +543,22 @@ if (isset($_POST['ajax_excel_import'])) {
              WHERE " . ($r_mfl_up ? "mflcode='$r_mfl_up'" : "facility_name='$r_fname_up'") . " LIMIT 1"));
         if (!$fac_up) { $skipped_up++; $errors_up[] = "Row ".($ridx_up+2).": facility '$r_fname_up' not found"; continue; }
 
-        $fid_up    = (int)$fac_up['facility_id'];
-        $fn_up     = $e($fac_up['facility_name']);
-        $mfl_up    = $e($fac_up['mflcode'] ?? '');
-        $cty_up    = $e($fac_up['county_name'] ?? '');
-        $sub_up    = $e($fac_up['subcounty_name'] ?? '');
-        $lat_up    = is_numeric($fac_up['latitude'])  ? (float)$fac_up['latitude']  : 'NULL';
-        $lng_up    = is_numeric($fac_up['longitude']) ? (float)$fac_up['longitude'] : 'NULL';
+        $fid_up = (int)$fac_up['facility_id'];
+        $fn_up  = $e($fac_up['facility_name']);
+        $mfl_up = $e($fac_up['mflcode'] ?? '');
+        $cty_up = $e($fac_up['county_name'] ?? '');
+        $sub_up = $e($fac_up['subcounty_name'] ?? '');
+        $lat_up = is_numeric($fac_up['latitude'])  ? (float)$fac_up['latitude']  : 'NULL';
+        $lng_up = is_numeric($fac_up['longitude']) ? (float)$fac_up['longitude'] : 'NULL';
 
-        // Lookup asset type — from asset_master_register
-        $arow_up = mysqli_fetch_assoc(mysqli_query($conn,
-            "SELECT asset_name, depreciation_percentage FROM asset_master_register WHERE asset_name='$r_asset_up' AND is_active=1 LIMIT 1"));
-        if (!$arow_up) { $skipped_up++; $errors_up[] = "Row ".($ridx_up+2).": asset type '$r_asset_up' not found in asset register"; continue; }
-
-        $dep_up  = (float)$arow_up['depreciation_percentage'];
+        // Lookup category → depreciation_percentage from asset_categories
+        $cat_key_up = strtolower($r_cat_up_raw);
+        if (!isset($cat_lkp_up[$cat_key_up])) {
+            $skipped_up++;
+            $errors_up[] = "Row ".($ridx_up+2).": category '$r_cat_up_raw' not found in asset_categories";
+            continue;
+        }
+        $dep_up = (float)$cat_lkp_up[$cat_key_up]['depreciation_percentage'];
         $diff_up = mysqli_fetch_assoc(mysqli_query($conn, "SELECT TIMESTAMPDIFF(MONTH,'$r_idate_up',NOW()) AS m"));
         $mo_up   = max(0, (int)($diff_up['m'] ?? 0));
         $cv_up   = max(0, round($r_pv_up * pow(1 - $dep_up / 100, $mo_up / 12), 2));
@@ -606,7 +619,7 @@ if (isset($_POST['ajax_excel_import'])) {
 // ────────────────────────────────────────────────────────────────────
 //  LOAD DROPDOWNS
 // ────────────────────────────────────────────────────────────────────
-$assets_res   = mysqli_query($conn, "SELECT asset_id AS dig_id, asset_name AS dit_asset_name, depreciation_percentage FROM asset_master_register WHERE is_active=1 ORDER BY asset_name");
+$assets_res   = mysqli_query($conn, "SELECT category_id AS dig_id, category_name AS dit_asset_name, depreciation_percentage FROM asset_categories ORDER BY category_name");
 $funders_res  = mysqli_query($conn, "SELECT dig_funder_id, dig_funder_name FROM digital_funders ORDER BY dig_funder_name");
 $sdps_res     = mysqli_query($conn, "SELECT sdp_id, sdp_name FROM service_delivery_points ORDER BY sdp_name");
 $emr_res      = mysqli_query($conn, "SELECT emr_type_id, emr_type_name FROM emr_types ORDER BY emr_type_name");
@@ -2124,7 +2137,7 @@ async function importCsv() {
 // ── Download CSV template ─────────────────
 function downloadTemplate(e) {
     e.preventDefault();
-    const headers = 'facility_name,mflcode,county_name,subcounty_name,dit_asset_name,tag_name,quantity,purchase_value,depreciation_percentage,issue_date,end_date,no_end_date,service_level,dig_funder_name,sdp_name,emr_type_name,lot_number,name_of_user,department_name,date_of_verification,comments\n';
+    const headers = 'facility_name,mflcode,county_name,subcounty_name,category_name,description,tag_name,quantity,purchase_value,issue_date,end_date,no_end_date,service_level,dig_funder_name,sdp_name,emr_type_name,lot_number,name_of_user,department_name,date_of_verification,comments\n';
     const blob = new Blob([headers], { type: 'text/csv' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
