@@ -239,18 +239,46 @@ if ($f_search)  $where .= " AND (air.facility_name LIKE '%$f_search%'
                                   OR air.name_of_user LIKE '%$f_search%'
                                   OR air.mflcode LIKE '%$f_search%')";
 
-// Total count
-$cnt_res  = mysqli_query($conn, "SELECT COUNT(*) AS n FROM `$_air_table` air
-            LEFT JOIN asset_master_register amr ON air.asset_id=amr.asset_id $where");
-$cnt_row  = $cnt_res ? mysqli_fetch_assoc($cnt_res) : ['n'=>0];
-$total    = (int)$cnt_row['n'];
+$is_filtered = ($f_status || $f_county || $f_dept || $f_search);
+
+// ── 1. Global summary (cards at top — never changes) ─────────────────────────
+$sum_res = mysqli_query($conn,
+    "SELECT
+        COUNT(*) AS total_records,
+        SUM(air.purchase_value) AS total_pv,
+        SUM(air.current_value)  AS total_cv,
+        SUM(CASE WHEN air.invest_status='Active' THEN 1 ELSE 0 END) AS active_cnt,
+        SUM(CASE WHEN (amr.asset_category IS NULL
+                       OR amr.asset_category NOT IN ('Motor Vehicle','Motor Cycle','Boat'))
+                 THEN 1 ELSE 0 END) AS digital_cnt
+     FROM `$_air_table` air
+     LEFT JOIN asset_master_register amr ON air.asset_id = amr.asset_id");
+$sum = $sum_res ? mysqli_fetch_assoc($sum_res) : [];
+
+// ── 2. Filtered summary (quick-analysis bar — changes with filters) ───────────
+$fsm_res = mysqli_query($conn,
+    "SELECT
+        COUNT(*) AS f_total,
+        SUM(air.purchase_value) AS f_pv,
+        SUM(air.current_value)  AS f_cv,
+        SUM(CASE WHEN air.invest_status='Active' THEN 1 ELSE 0 END) AS f_active,
+        SUM(CASE WHEN (amr.asset_category IS NULL
+                       OR amr.asset_category NOT IN ('Motor Vehicle','Motor Cycle','Boat'))
+                 THEN 1 ELSE 0 END) AS f_digital
+     FROM `$_air_table` air
+     LEFT JOIN asset_master_register amr ON air.asset_id = amr.asset_id
+     $where");
+$fsm = $fsm_res ? mysqli_fetch_assoc($fsm_res) : [];
+
+// $total drives pagination — use filtered count
+$total  = (int)($fsm['f_total'] ?? 0);
 
 $per_page = 30;
 $page     = max(1, (int)($_GET['page'] ?? 1));
 $offset   = ($page - 1) * $per_page;
 $pages    = max(1, ceil($total / $per_page));
 
-// Main query
+// ── 3. Main record list ───────────────────────────────────────────────────────
 $list_res = mysqli_query($conn,
     "SELECT air.invest_id, air.asset_id, air.facility_name, air.mflcode,
             air.county_name, air.tag_name, air.name_of_user, air.department_name,
@@ -271,15 +299,6 @@ $list_res = mysqli_query($conn,
 
 $records = [];
 if ($list_res) while ($row = mysqli_fetch_assoc($list_res)) $records[] = $row;
-
-// Summary cards
-$sum_res = mysqli_query($conn, "SELECT
-    COUNT(*) AS total_records,
-    SUM(purchase_value) AS total_pv,
-    SUM(current_value)  AS total_cv,
-    SUM(CASE WHEN invest_status='Active' THEN 1 ELSE 0 END) AS active_cnt
-    FROM `$_air_table`");
-$sum = $sum_res ? mysqli_fetch_assoc($sum_res) : [];
 
 // County dropdown
 $cnty_res = mysqli_query($conn, "SELECT DISTINCT county_name FROM `$_air_table` WHERE county_name IS NOT NULL ORDER BY county_name");
@@ -318,8 +337,9 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .topbar .acts a:hover{opacity:1}
 .container{max-width:1400px;margin:24px auto;padding:0 18px}
 /* SUMMARY CARDS */
-.summary-row{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px}
-@media(max-width:900px){.summary-row{grid-template-columns:1fr 1fr}}
+.summary-row{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:22px}
+@media(max-width:1100px){.summary-row{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:700px){.summary-row{grid-template-columns:1fr 1fr}}
 .scard{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);border:1px solid var(--border);padding:16px 20px;display:flex;align-items:center;gap:14px}
 .scard-icon{width:44px;height:44px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.2rem;flex-shrink:0}
 .scard-icon.purple{background:#f0ebff;color:var(--primary)}
@@ -363,6 +383,13 @@ td{padding:10px 12px;vertical-align:middle}
 .pag-links a,.pag-links span{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:7px;border:1.5px solid var(--border);font-size:.82rem;font-weight:600;text-decoration:none;color:var(--text);transition:all .2s}
 .pag-links a:hover{background:var(--primary);color:#fff;border-color:var(--primary)}
 .pag-links span.current{background:var(--primary);color:#fff;border-color:var(--primary)}
+/* FILTERED STATS BAR */
+.fstats{background:#fff;border:1.5px solid #FFC12E;border-radius:var(--radius);padding:12px 18px;margin-bottom:16px;display:flex;align-items:center;gap:24px;flex-wrap:wrap}
+.fstats .fstats-label{font-size:.75rem;font-weight:700;color:#a06500;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap}
+.fstats .fstat{display:flex;flex-direction:column;align-items:center;min-width:90px}
+.fstats .fstat span{font-size:.7rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.4px}
+.fstats .fstat strong{font-size:1rem;font-weight:700;color:var(--primary)}
+.fstats .divider{width:1px;height:36px;background:var(--border);flex-shrink:0}
 /* MODAL */
 .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.48);z-index:1000;align-items:center;justify-content:center}
 .modal-overlay.show{display:flex}
@@ -400,23 +427,46 @@ td{padding:10px 12px;vertical-align:middle}
 <div class="container">
     <div id="alertBox" class="alert"></div>
 
-    <!-- SUMMARY CARDS -->
+    <!-- SUMMARY CARDS — always global, not affected by filters -->
+    <div style="font-size:.75rem;color:var(--muted);margin-bottom:6px">
+        <i class="fa fa-globe fa-xs"></i> Global statistics — these totals always reflect all records, not filtered results.
+    </div>
     <div class="summary-row">
         <div class="scard">
             <div class="scard-icon purple"><i class="fa fa-tags"></i></div>
-            <div class="scard-body"><p>Total Records</p><h3><?= number_format((int)($sum['total_records'] ?? 0)) ?></h3></div>
+            <div class="scard-body">
+                <p>Total Issued</p>
+                <h3><?= number_format((int)($sum['total_records'] ?? 0)) ?></h3>
+            </div>
         </div>
         <div class="scard">
             <div class="scard-icon green"><i class="fa fa-circle-check"></i></div>
-            <div class="scard-body"><p>Active</p><h3><?= number_format((int)($sum['active_cnt'] ?? 0)) ?></h3></div>
+            <div class="scard-body">
+                <p>Active</p>
+                <h3><?= number_format((int)($sum['active_cnt'] ?? 0)) ?></h3>
+            </div>
+        </div>
+        <div class="scard" style="border-left:3px solid #AC80EE">
+            <div class="scard-icon" style="background:#f0ebff;color:#2D008A"><i class="fa fa-laptop"></i></div>
+            <div class="scard-body">
+                <p>Digital Assets</p>
+                <h3><?= number_format((int)($sum['digital_cnt'] ?? 0)) ?></h3>
+                <span style="font-size:.7rem;color:var(--muted)">excl. vehicles &amp; boats</span>
+            </div>
         </div>
         <div class="scard">
             <div class="scard-icon yellow"><i class="fa fa-coins"></i></div>
-            <div class="scard-body"><p>Total Purchase Value</p><h3>KES <?= number_format((float)($sum['total_pv'] ?? 0), 0) ?></h3></div>
+            <div class="scard-body">
+                <p>Total Purchase Value</p>
+                <h3 style="font-size:1rem">KES <?= number_format((float)($sum['total_pv'] ?? 0), 0) ?></h3>
+            </div>
         </div>
         <div class="scard">
             <div class="scard-icon red"><i class="fa fa-chart-line"></i></div>
-            <div class="scard-body"><p>Total Current Value</p><h3>KES <?= number_format((float)($sum['total_cv'] ?? 0), 0) ?></h3></div>
+            <div class="scard-body">
+                <p>Total Current Value</p>
+                <h3 style="font-size:1rem">KES <?= number_format((float)($sum['total_cv'] ?? 0), 0) ?></h3>
+            </div>
         </div>
     </div>
 
@@ -461,12 +511,47 @@ td{padding:10px 12px;vertical-align:middle}
         <a href="view_asset_issues.php" class="btn btn-outline"><i class="fa fa-rotate-left"></i> Reset</a>
     </form>
 
+    <!-- FILTERED STATS BAR — always visible, updates with filters -->
+    <div class="fstats">
+        <div class="fstats-label">
+            <i class="fa fa-filter fa-xs"></i>
+            <?= $is_filtered ? 'Filtered results' : 'All records' ?>
+        </div>
+        <div class="divider"></div>
+        <div class="fstat">
+            <span>Records</span>
+            <strong><?= number_format((int)($fsm['f_total'] ?? 0)) ?></strong>
+        </div>
+        <div class="fstat">
+            <span>Active</span>
+            <strong><?= number_format((int)($fsm['f_active'] ?? 0)) ?></strong>
+        </div>
+        <div class="fstat">
+            <span>Digital Assets</span>
+            <strong><?= number_format((int)($fsm['f_digital'] ?? 0)) ?></strong>
+        </div>
+        <div class="divider"></div>
+        <div class="fstat">
+            <span>Purchase Value</span>
+            <strong style="font-size:.88rem">KES <?= number_format((float)($fsm['f_pv'] ?? 0), 0) ?></strong>
+        </div>
+        <div class="fstat">
+            <span>Current Value</span>
+            <strong style="font-size:.88rem">KES <?= number_format((float)($fsm['f_cv'] ?? 0), 0) ?></strong>
+        </div>
+        <?php if ($is_filtered): ?>
+        <div style="margin-left:auto;font-size:.78rem;color:var(--muted)">
+            of <?= number_format((int)($sum['total_records'] ?? 0)) ?> total records
+        </div>
+        <?php endif; ?>
+    </div>
+
     <!-- TABLE -->
     <div class="table-wrap">
         <div class="table-head">
             <h2><i class="fa fa-table fa-sm"></i> Issuance Records
                 <span style="font-size:.82rem;font-weight:400;color:var(--muted);margin-left:8px">
-                    (<?= number_format($total) ?> total — showing <?= $per_page ?> per page)
+                    <?= number_format($total) ?> <?= $is_filtered ? 'matching' : 'total' ?> · page <?= $page ?> of <?= $pages ?>
                 </span>
             </h2>
         </div>
