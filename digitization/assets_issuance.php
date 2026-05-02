@@ -1,11 +1,14 @@
 <?php
 // digitization/assets_issuance.php — Assets Issuance Register
 
-// ── AJAX: buffer ALL output immediately so PHP warnings never corrupt JSON ──
-$_IS_AJAX = (isset($_GET['ajax']) || isset($_POST['ajax_save']) || isset($_POST['ajax_delete']));
+// ── Buffer ALL output for every AJAX request so errors never corrupt JSON ──
+$_IS_AJAX = (isset($_GET['ajax'])
+           || isset($_POST['ajax_save'])
+           || isset($_POST['ajax_delete'])
+           || isset($_POST['ajax_import']));
 if ($_IS_AJAX) {
     ob_start();
-    ini_set('display_errors', 0);   // suppress HTML error output for AJAX
+    ini_set('display_errors', 0);
     error_reporting(0);
 }
 
@@ -26,6 +29,9 @@ if (!isset($conn) || !$conn) {
     if ($_IS_AJAX) { ob_end_clean(); header('Content-Type: application/json'); echo json_encode(['success'=>false,'error'=>'DB connection failed']); exit(); }
     die('Database connection failed.');
 }
+// PHP 8.1 mysqli throws exceptions by default — revert to classic error-return mode
+// so all if (mysqli_query(...)) patterns work correctly
+mysqli_report(MYSQLI_REPORT_OFF);
 if (!isset($_SESSION['user_id'])) {
     if ($_IS_AJAX) { ob_end_clean(); header('Content-Type: application/json'); echo json_encode(['success'=>false,'error'=>'Not authenticated']); exit(); }
     header('Location: ../login.php'); exit();
@@ -35,9 +41,22 @@ $created_by = $_SESSION['full_name'] ?? '';
 $this_file  = basename(__FILE__);
 
 // ── HELPERS ─────────────────────────────────────────────────────────────────
-$e = fn($v) => mysqli_real_escape_string($conn, trim((string)($v ?? '')));
-$f = fn($v) => is_numeric($v) ? (float)$v : 'NULL';
-$i = fn($v) => is_numeric($v) ? (int)$v   : 'NULL';
+$e   = fn($v) => mysqli_real_escape_string($conn, trim((string)($v ?? '')));
+$f   = fn($v) => is_numeric($v) ? (float)$v : 'NULL';
+$i   = fn($v) => is_numeric($v) ? (int)$v   : 'NULL';
+// Clamp lat/lng to valid ranges and round to 7 dp (fits DECIMAL(10,7))
+// latitude: -90..90,  longitude: -180..180  → but DECIMAL(10,7) max is ±999.9999999
+// We still clamp to geographic bounds to catch garbage data
+$lat_sql = function($v): string {
+    if (!is_numeric($v)) return 'NULL';
+    $v = round((float)$v, 7);
+    return ($v >= -90 && $v <= 90) ? (string)$v : 'NULL';
+};
+$lng_sql = function($v): string {
+    if (!is_numeric($v)) return 'NULL';
+    $v = round((float)$v, 7);
+    return ($v >= -180 && $v <= 180) ? (string)$v : 'NULL';
+};
 
 // Helper: flush AJAX buffer and output clean JSON
 function ajax_json(array $payload): void {
@@ -84,15 +103,20 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'search_facility') {
 
 // ── AJAX: search asset master register ──────────────────────────────────────
 if (isset($_GET['ajax']) && $_GET['ajax'] === 'search_asset') {
-    $q = $e($_GET['q'] ?? '');
-    $rows = [];
+    $q        = $e($_GET['q'] ?? '');
+    // When editing an existing record, allow searching all active assets (not just In Stock)
+    $edit_ctx = !empty($_GET['edit_ctx']);
+    $rows     = [];
     if (strlen($q) >= 2) {
+        $status_clause = $edit_ctx ? '' : "AND (asset_status = 'In Stock' OR asset_status IS NULL)";
         $res = mysqli_query($conn,
             "SELECT asset_id, asset_category, description, model, serial_number,
                     purchase_value, depreciation_percentage,
-                    dig_funder_name, project_name, lpo_number, current_condition
+                    dig_funder_name, project_name, lpo_number, current_condition,
+                    asset_status
              FROM asset_master_register
              WHERE is_active = 1
+               $status_clause
                AND (description LIKE '%$q%' OR serial_number LIKE '%$q%'
                  OR model LIKE '%$q%' OR asset_category LIKE '%$q%'
                  OR lpo_number LIKE '%$q%')
@@ -120,8 +144,8 @@ if (isset($_POST['ajax_save'])) {
         $mflcode        = $e($_POST['mflcode'] ?? '');
         $county_name    = $e($_POST['county_name'] ?? '');
         $subcounty_name = $e($_POST['subcounty_name'] ?? '');
-        $latitude       = $f($_POST['latitude'] ?? 'NULL');
-        $longitude      = $f($_POST['longitude'] ?? 'NULL');
+        $latitude       = $lat_sql($_POST['latitude']  ?? '');
+        $longitude      = $lng_sql($_POST['longitude'] ?? '');
         $tag_name       = $e($_POST['tag_name'] ?? '');
         $emr_type_id    = (empty($_POST['emr_type_id']) || $_POST['emr_type_id'] == '0') ? 'NULL' : (int)$_POST['emr_type_id'];
         $service_level  = $e($_POST['service_level'] ?? 'Facility-wide');
@@ -148,8 +172,8 @@ if (isset($_POST['ajax_save'])) {
         $dep_pct        = (float)$amr['depreciation_percentage'];
         $purchase_value = (float)$amr['purchase_value'];
 
-        $mq  = mysqli_query($conn, "SELECT TIMESTAMPDIFF(MONTH, '$issue_date', NOW()) AS m");
-        $mr  = mysqli_fetch_assoc($mq);
+        $mq     = mysqli_query($conn, "SELECT TIMESTAMPDIFF(MONTH, '$issue_date', NOW()) AS m");
+        $mr     = $mq ? mysqli_fetch_assoc($mq) : null;
         $months = max(0, (int)($mr['m'] ?? 0));
         $current_value = max(0, round($purchase_value * pow(1 - ($dep_pct / 100), $months / 12), 2));
 
@@ -170,6 +194,13 @@ if (isset($_POST['ajax_save'])) {
 
         if (mysqli_query($conn, $sql)) {
             $final_id = ($invest_id_edit > 0) ? $invest_id_edit : mysqli_insert_id($conn);
+            // On new issuance, mark the asset as Issued in the master register
+            if ($invest_id_edit <= 0) {
+                mysqli_query($conn,
+                    "UPDATE asset_master_register
+                     SET asset_status = 'Issued', date_of_issue = '$issue_date', updated_at = NOW()
+                     WHERE asset_id = $asset_id");
+            }
             ajax_json(['success' => true, 'invest_id' => $final_id, 'action' => ($invest_id_edit > 0 ? 'update' : 'insert')]);
         } else {
             ajax_json(['success' => false, 'error' => 'DB Error: ' . mysqli_error($conn)]);
@@ -187,6 +218,245 @@ if (isset($_POST['ajax_delete'])) {
         ajax_json($ok ? ['success' => true] : ['success' => false, 'error' => mysqli_error($conn)]);
     }
     ajax_json(['success' => false, 'error' => 'Invalid ID']);
+}
+
+// ── AJAX: bulk import previously issued assets ───────────────────────────────
+if (isset($_POST['ajax_import'])) {
+    @ini_set('memory_limit', '512M');
+    @set_time_limit(300);
+
+    if (empty($_FILES['import_file']['tmp_name'])) {
+        ajax_json(['success' => false, 'error' => 'No file uploaded.']);
+    }
+
+    $filename = $_FILES['import_file']['name'];
+    $tmp_path = $_FILES['import_file']['tmp_name'];
+    $ext      = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+    $raw_headers = [];
+    $data_rows   = [];
+    $xl_loaded   = false;
+
+    if (in_array($ext, ['xlsx', 'xls'])) {
+        $autoload = dirname(__DIR__) . '/vendor/autoload.php';
+        if (!file_exists($autoload)) {
+            ajax_json(['success' => false, 'error' => 'PhpSpreadsheet not found. Run: composer require phpoffice/phpspreadsheet']);
+        }
+        require_once $autoload;
+        $xl_loaded = true;
+        try {
+            $reader = \PhpOffice\PhpSpreadsheet\IOFactory::createReaderForFile($tmp_path);
+            $reader->setReadDataOnly(true);
+            $ss   = $reader->load($tmp_path);
+            $rows_raw = $ss->getActiveSheet()->toArray(null, true, true, false);
+            $ss->disconnectWorksheets(); unset($ss);
+        } catch (\Throwable $ex) {
+            ajax_json(['success' => false, 'error' => 'Cannot read Excel: ' . $ex->getMessage()]);
+        }
+        if (empty($rows_raw)) ajax_json(['success' => false, 'error' => 'Excel file is empty.']);
+        $raw_headers = array_map(fn($h) => strtolower(trim(str_replace(["\r","\n","\xEF\xBB\xBF"],'', (string)($h??'')))), $rows_raw[0]);
+        $data_rows   = array_slice($rows_raw, 1);
+        unset($rows_raw);
+    } elseif ($ext === 'csv') {
+        $handle = fopen($tmp_path, 'r');
+        if (!$handle) ajax_json(['success' => false, 'error' => 'Cannot open CSV.']);
+        $bom = fread($handle, 3);
+        if ($bom !== "\xEF\xBB\xBF") rewind($handle);
+        $first = fgetcsv($handle);
+        if (!$first) { fclose($handle); ajax_json(['success' => false, 'error' => 'CSV empty.']); }
+        $raw_headers = array_map(fn($h) => strtolower(trim(str_replace(["\r","\n","\xEF\xBB\xBF"],'', (string)($h??'')))), $first);
+        while (($row = fgetcsv($handle)) !== false) $data_rows[] = $row;
+        fclose($handle);
+    } else {
+        ajax_json(['success' => false, 'error' => 'Unsupported file type: .' . $ext]);
+    }
+
+    $hdr_count = count($raw_headers);
+    $required  = ['issue_date', 'tag_name'];
+    $missing   = array_diff($required, $raw_headers);
+    if (!empty($missing)) {
+        ajax_json(['success' => false,
+            'error' => 'Missing required column(s): ' . implode(', ', $missing) .
+                       '. Found: ' . implode(', ', array_filter($raw_headers, fn($h) => $h !== ''))]);
+    }
+
+    // Pre-load lookups
+    $dept_lookup = [];
+    $dql = mysqli_query($conn, "SELECT department_id, department_name FROM departments");
+    if ($dql) while ($dr = mysqli_fetch_assoc($dql)) $dept_lookup[strtolower(trim($dr['department_name']))] = $dr;
+
+    $emr_lookup = [];
+    $eql = mysqli_query($conn, "SELECT emr_type_id, emr_type_name FROM emr_types");
+    if ($eql) while ($er = mysqli_fetch_assoc($eql)) $emr_lookup[strtolower(trim($er['emr_type_name']))] = $er;
+
+    $parse_date = function($v) use ($xl_loaded) {
+        if ($v === null || $v === '') return null;
+        if (is_numeric($v) && (float)$v > 1000) {
+            if ($xl_loaded) {
+                try { return \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject((float)$v)->format('Y-m-d'); } catch(\Throwable $ex) { return null; }
+            }
+            return date('Y-m-d', (int)(((float)$v - 25569) * 86400));
+        }
+        if ($v instanceof \DateTime) return $v->format('Y-m-d');
+        if (is_string($v)) { $ts = strtotime(trim($v)); return $ts ? date('Y-m-d', $ts) : null; }
+        return null;
+    };
+
+    $make_row = function(array $raw) use ($raw_headers, $hdr_count): array {
+        $padded = array_pad(array_slice($raw, 0, $hdr_count), $hdr_count, '');
+        return @array_combine($raw_headers, $padded) ?: [];
+    };
+    $col = fn(array $d, string $k, $def = '') => $d[$k] ?? $def;
+
+    $imported = 0; $skipped = 0; $errors = [];
+    $cb = $e($created_by);
+
+    foreach ($data_rows as $ridx => $raw) {
+        if (!is_array($raw)) { $skipped++; continue; }
+        if (empty(array_filter($raw, fn($v) => $v !== null && $v !== ''))) continue;
+
+        $data = $make_row($raw);
+        if (empty($data)) { $skipped++; continue; }
+
+        // Skip repeated header rows
+        if (strtolower(trim((string)$col($data,'tag_name'))) === 'tag_name') { $skipped++; continue; }
+
+        // ── Resolve asset ──────────────────────────────────────────
+        $r_asset_id   = (int)$col($data, 'asset_id', 0);
+        $r_serial     = trim((string)$col($data, 'serial_number'));
+        $r_desc       = trim((string)$col($data, 'description'));
+        $amr_row      = null;
+
+        if ($r_asset_id > 0) {
+            $aq = mysqli_query($conn, "SELECT * FROM asset_master_register WHERE asset_id=$r_asset_id AND is_active=1 LIMIT 1");
+            $amr_row = $aq ? mysqli_fetch_assoc($aq) : null;
+        }
+        if (!$amr_row && $r_serial !== '') {
+            $aq = mysqli_query($conn, "SELECT * FROM asset_master_register WHERE serial_number='" . $e($r_serial) . "' AND is_active=1 LIMIT 1");
+            $amr_row = $aq ? mysqli_fetch_assoc($aq) : null;
+        }
+        if (!$amr_row && $r_desc !== '') {
+            $aq = mysqli_query($conn, "SELECT * FROM asset_master_register WHERE description LIKE '%" . $e($r_desc) . "%' AND is_active=1 LIMIT 1");
+            $amr_row = $aq ? mysqli_fetch_assoc($aq) : null;
+        }
+        if (!$amr_row) {
+            $skipped++;
+            if (count($errors) < 30) $errors[] = "Row " . ($ridx+2) . ": Asset not found (asset_id/serial/description).";
+            continue;
+        }
+        $amr_id  = (int)$amr_row['asset_id'];
+        $amr_dsc = $e($amr_row['description']);
+        $dep_pct = (float)$amr_row['depreciation_percentage'];
+        $pv      = (float)$amr_row['purchase_value'];
+
+        // ── Resolve facility ───────────────────────────────────────
+        $r_mfl    = trim((string)$col($data, 'mflcode'));
+        $r_fac    = trim((string)$col($data, 'facility_name'));
+        $fac_row  = null;
+
+        if ($r_mfl !== '') {
+            $fq = mysqli_query($conn, "SELECT facility_id, facility_name, mflcode, county_name, subcounty_name, latitude, longitude FROM facilities WHERE mflcode='" . $e($r_mfl) . "' LIMIT 1");
+            $fac_row = $fq ? mysqli_fetch_assoc($fq) : null;
+        }
+        if (!$fac_row && $r_fac !== '') {
+            $fq = mysqli_query($conn, "SELECT facility_id, facility_name, mflcode, county_name, subcounty_name, latitude, longitude FROM facilities WHERE facility_name LIKE '%" . $e($r_fac) . "%' LIMIT 1");
+            $fac_row = $fq ? mysqli_fetch_assoc($fq) : null;
+        }
+        if (!$fac_row) {
+            $skipped++;
+            if (count($errors) < 30) $errors[] = "Row " . ($ridx+2) . ": Facility not found (mflcode='$r_mfl' / name='$r_fac').";
+            continue;
+        }
+        $fac_id  = (int)$fac_row['facility_id'];
+        $fac_nm  = $e($fac_row['facility_name']);
+        $mfl_s   = $e($fac_row['mflcode'] ?? '');
+        $cnty_s  = $e($fac_row['county_name'] ?? '');
+        $subcnty = $e($fac_row['subcounty_name'] ?? '');
+        $lat_v   = $lat_sql($fac_row['latitude']  ?? '');
+        $lng_v   = $lng_sql($fac_row['longitude'] ?? '');
+
+        // ── Required row fields ────────────────────────────────────
+        $r_tag      = trim((string)$col($data, 'tag_name'));
+        $r_issue    = $parse_date($col($data, 'issue_date'));
+        if (!$r_tag || !$r_issue) {
+            $skipped++;
+            if (count($errors) < 30) $errors[] = "Row " . ($ridx+2) . ": tag_name and issue_date are required.";
+            continue;
+        }
+
+        // ── Optional fields ────────────────────────────────────────
+        $r_user    = $e($col($data, 'name_of_user'));
+        $r_dept_nm = trim((string)$col($data, 'department_name'));
+        $r_dept_id = 'NULL';
+        if ($r_dept_nm !== '') {
+            $dk = strtolower($r_dept_nm);
+            if (isset($dept_lookup[$dk])) {
+                $r_dept_id = (int)$dept_lookup[$dk]['department_id'];
+                $r_dept_nm = $dept_lookup[$dk]['department_name'];
+            }
+        }
+        $r_dept_s  = $e($r_dept_nm);
+
+        $r_emr_nm  = trim((string)$col($data, 'emr_type_name'));
+        $r_emr_id  = 'NULL';
+        if ($r_emr_nm !== '') {
+            $ek = strtolower($r_emr_nm);
+            if (isset($emr_lookup[$ek])) $r_emr_id = (int)$emr_lookup[$ek]['emr_type_id'];
+        }
+
+        $r_sl_raw  = trim((string)$col($data, 'service_level', 'Facility-wide'));
+        $r_sl      = in_array($r_sl_raw, ['Facility-wide','Service Delivery Point']) ? $r_sl_raw : 'Facility-wide';
+        $r_lot     = $e($col($data, 'lot_number'));
+        $r_end     = $parse_date($col($data, 'end_date'));
+        $r_ned     = ($r_end === null) ? 1 : 0;
+        $ed_sql    = $r_end ? "'$r_end'" : 'NULL';
+
+        // ── Current value calc ─────────────────────────────────────
+        $mq  = mysqli_query($conn, "SELECT TIMESTAMPDIFF(MONTH, '$r_issue', NOW()) AS m");
+        $mr  = $mq ? mysqli_fetch_assoc($mq) : null;
+        $mos = max(0, (int)($mr['m'] ?? 0));
+        $cv  = max(0, round($pv * pow(1 - ($dep_pct / 100), $mos / 12), 2));
+
+        // ── Duplicate check (same asset_id + facility) ─────────────
+        $dup = mysqli_query($conn, "SELECT invest_id FROM `$_air_table` WHERE asset_id=$amr_id AND facility_id=$fac_id AND tag_name='" . $e($r_tag) . "' LIMIT 1");
+        if ($dup && mysqli_num_rows($dup) > 0) {
+            $skipped++;
+            if (count($errors) < 30) $errors[] = "Row " . ($ridx+2) . ": Duplicate (asset+facility+tag already exists).";
+            continue;
+        }
+
+        $ins = "INSERT INTO `$_air_table`
+                  (asset_id, facility_id, facility_name, mflcode, county_name, subcounty_name,
+                   latitude, longitude, asset_name, tag_name,
+                   quantity, total_cost, depreciation_percentage, purchase_value, current_value,
+                   issue_date, end_date, no_end_date, emr_type_id, service_level, lot_number,
+                   invest_status, name_of_user, department_id, department_name,
+                   created_by, created_at, updated_at)
+                VALUES
+                  ($amr_id, $fac_id, '$fac_nm', '$mfl_s', '$cnty_s', '$subcnty',
+                   $lat_v, $lng_v, '$amr_dsc', '" . $e($r_tag) . "',
+                   1, $pv, $dep_pct, $pv, $cv,
+                   '$r_issue', $ed_sql, $r_ned, $r_emr_id, '$r_sl', '$r_lot',
+                   'Active', '$r_user', $r_dept_id, '$r_dept_s',
+                   '$cb', NOW(), NOW())";
+
+        if (mysqli_query($conn, $ins)) {
+            // Mark asset as Issued in master register
+            mysqli_query($conn, "UPDATE asset_master_register
+                                 SET asset_status='Issued', date_of_issue='$r_issue', updated_at=NOW()
+                                 WHERE asset_id=$amr_id");
+            $imported++;
+        } else {
+            $skipped++;
+            if (count($errors) < 30) $errors[] = "Row " . ($ridx+2) . ": " . mysqli_error($conn);
+        }
+    }
+
+    ajax_json([
+        'success'  => true,
+        'imported' => $imported,
+        'skipped'  => $skipped,
+        'errors'   => $errors,
+    ]);
 }
 
 // ── Load dropdowns ────────────────────────────────────────────────────────────
@@ -286,7 +556,39 @@ input[readonly]{background:#f5f3fb;color:var(--muted);cursor:not-allowed}
 
 <div class="container">
     <div id="alertBox" class="alert"></div>
-
+    <!-- ── IMPORT CARD ──────────────────────────────────────────────────── -->
+    <div class="card" style="margin-bottom:20px;border:2px dashed var(--primary-light)">
+        <div class="card-header">
+            <i class="fa fa-file-import fa-lg"></i>
+            <h2>Bulk Import Previously Issued Assets</h2>
+        </div>
+        <div style="padding:18px 22px">
+            <p style="font-size:.85rem;color:var(--muted);margin-bottom:16px">
+                Upload an <strong>Excel (.xlsx) or CSV</strong> file of previously issued assets.&nbsp;
+                <strong>Required:</strong> <code>tag_name</code> &amp; <code>issue_date</code> plus one asset identifier
+                (<code>asset_id</code> / <code>serial_number</code> / <code>description</code>) and one facility identifier
+                (<code>mflcode</code> / <code>facility_name</code>).&nbsp;
+                <strong>Optional:</strong> <code>name_of_user</code>, <code>department_name</code>, <code>emr_type_name</code>,
+                <code>service_level</code>, <code>lot_number</code>, <code>end_date</code>
+            </p>
+            <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+                <a href="data:text/csv;charset=utf-8,mflcode,facility_name,asset_id,serial_number,description,tag_name,issue_date,name_of_user,department_name,emr_type_name,service_level,lot_number,end_date"
+                   download="issuance_import_template.csv" class="btn btn-outline">
+                    <i class="fa fa-download"></i> Download Template
+                </a>
+                <form id="importForm" enctype="multipart/form-data" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+                    <input type="hidden" name="ajax_import" value="1">
+                    <input type="file" name="import_file" id="importFile" accept=".xlsx,.xls,.csv"
+                           style="border:1.5px solid var(--border);border-radius:7px;padding:7px 10px;font-size:.85rem">
+                    <button type="submit" class="btn btn-primary" id="importBtn">
+                        <i class="fa fa-upload"></i> Import File
+                        <span class="spinner" id="importSpinner"></span>
+                    </button>
+                </form>
+            </div>
+            <div id="importResult" style="margin-top:16px;display:none"></div>
+        </div>
+    </div>
     <div class="card">
         <div class="card-header">
             <i class="fa fa-file-signature fa-lg"></i>
@@ -356,7 +658,7 @@ input[readonly]{background:#f5f3fb;color:var(--muted);cursor:not-allowed}
                     <select name="emr_type_id">
                         <option value="0">— Select —</option>
                         <?php foreach ($emr_arr as $em): ?>
-                        <option value="<?= $em['emr_type_id'] ?>" <?= ($edit_row['emr_type_id'] == $em['emr_type_id']) ? 'selected' : '' ?>><?= $em['emr_type_name'] ?></option>
+                        <option value="<?= $em['emr_type_id'] ?>" <?= (($edit_row['emr_type_id'] ?? 0) == $em['emr_type_id']) ? 'selected' : '' ?>><?= htmlspecialchars($em['emr_type_name']) ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>
@@ -372,7 +674,7 @@ input[readonly]{background:#f5f3fb;color:var(--muted);cursor:not-allowed}
                     <select name="department_id" id="department_id" required>
                         <option value="0">— Select —</option>
                         <?php foreach ($depts_arr as $dep): ?>
-                        <option value="<?= $dep['department_id'] ?>" data-name="<?= $dep['department_name'] ?>" <?= ($edit_row['department_id'] == $dep['department_id']) ? 'selected' : '' ?>><?= $dep['department_name'] ?></option>
+                        <option value="<?= $dep['department_id'] ?>" data-name="<?= htmlspecialchars($dep['department_name']) ?>" <?= (($edit_row['department_id'] ?? 0) == $dep['department_id']) ? 'selected' : '' ?>><?= htmlspecialchars($dep['department_name']) ?></option>
                         <?php endforeach; ?>
                     </select>
                     <input type="hidden" name="department_name" id="department_name" value="<?= $edit_row['department_name'] ?? '' ?>">
@@ -391,105 +693,200 @@ input[readonly]{background:#f5f3fb;color:var(--muted);cursor:not-allowed}
 </div>
 
 <script>
-function showAlert(msg, type='success') {
+const IS_EDIT = <?= $edit_row ? 'true' : 'false' ?>;
+
+// ── ALERT ─────────────────────────────────────────────────────────────────
+function showAlert(msg, type = 'success') {
     const b = document.getElementById('alertBox');
     b.className = 'alert alert-' + type + ' show';
-    b.innerHTML = msg;
-    window.scrollTo({top:0, behavior:'smooth'});
-    setTimeout(() => { b.className='alert'; }, 5000);
+    b.innerHTML = '<i class="fa fa-' + (type === 'success' ? 'check-circle' : 'exclamation-triangle') + '"></i> ' + msg;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setTimeout(() => { b.className = 'alert'; }, 6000);
 }
 
-// Search Logic (Facility)
+// ── FACILITY SEARCH ────────────────────────────────────────────────────────
 let fTimer;
 const fSearch = document.getElementById('facilitySearch');
-const fList = document.getElementById('facilityList');
+const fList   = document.getElementById('facilityList');
+
 fSearch.addEventListener('input', () => {
     clearTimeout(fTimer);
     const q = fSearch.value.trim();
     if (q.length < 2) { fList.classList.remove('show'); return; }
     fTimer = setTimeout(async () => {
-        const r = await fetch('?ajax=search_facility&q=' + encodeURIComponent(q));
-        const data = await r.json();
-        fList.innerHTML = '';
-        data.forEach(f => {
-            const d = document.createElement('div');
-            d.className = 'dl-item';
-            d.innerHTML = `<b>${f.facility_name}</b> <small>${f.mflcode}</small>`;
-            d.onclick = () => {
-                fSearch.value = f.facility_name;
-                document.getElementById('facility_id').value = f.facility_id;
-                document.getElementById('mflcode').value = f.mflcode;
-                document.getElementById('county_name').value = f.county_name;
-                document.getElementById('subcounty_name').value = f.subcounty_name;
-                fList.classList.remove('show');
-            };
-            fList.appendChild(d);
-        });
-        fList.classList.add('show');
-    }, 300);
+        try {
+            const data = await fetch('?ajax=search_facility&q=' + encodeURIComponent(q)).then(r => r.json());
+            fList.innerHTML = '';
+            if (!data.length) { fList.classList.remove('show'); return; }
+            data.forEach(f => {
+                const d = document.createElement('div');
+                d.className = 'dl-item';
+                d.innerHTML = `<b>${f.facility_name}</b> <small>${f.mflcode || ''} · ${f.county_name || ''}</small>`;
+                d.onclick = () => {
+                    fSearch.value = f.facility_name;
+                    document.getElementById('facility_id').value   = f.facility_id   || '';
+                    document.getElementById('mflcode').value        = f.mflcode        || '';
+                    document.getElementById('county_name').value    = f.county_name    || '';
+                    document.getElementById('subcounty_name').value = f.subcounty_name || '';
+                    document.getElementById('latitude').value       = f.latitude       || '';
+                    document.getElementById('longitude').value      = f.longitude      || '';
+                    fList.classList.remove('show');
+                };
+                fList.appendChild(d);
+            });
+            fList.classList.add('show');
+        } catch(ex) { console.error('Facility search error', ex); }
+    }, 280);
 });
+document.addEventListener('click', e => { if (!fSearch.contains(e.target)) fList.classList.remove('show'); });
 
-// Search Logic (Asset)
+// ── ASSET SEARCH (only In Stock for new; all active for edit) ─────────────
 let aTimer;
 const aSearch = document.getElementById('assetSearch');
-const aList = document.getElementById('assetList');
+const aList   = document.getElementById('assetList');
+
 aSearch.addEventListener('input', () => {
     clearTimeout(aTimer);
     const q = aSearch.value.trim();
     if (q.length < 2) { aList.classList.remove('show'); return; }
     aTimer = setTimeout(async () => {
-        const r = await fetch('?ajax=search_asset&q=' + encodeURIComponent(q));
-        const data = await r.json();
-        aList.innerHTML = '';
-        data.forEach(a => {
-            const d = document.createElement('div');
-            d.className = 'dl-item';
-            d.innerHTML = `<b>${a.description}</b> <small>SN: ${a.serial_number}</small>`;
-            d.onclick = () => {
-                aSearch.value = a.description;
-                document.getElementById('asset_id').value = a.asset_id;
-                document.getElementById('prev_cat').textContent = a.asset_category;
-                document.getElementById('prev_serial').textContent = a.serial_number;
-                document.getElementById('prev_pv').textContent = parseFloat(a.purchase_value).toLocaleString();
-                document.getElementById('assetPreview').classList.add('show');
-                aList.classList.remove('show');
-            };
-            aList.appendChild(d);
-        });
-        aList.classList.add('show');
-    }, 300);
+        try {
+            const url = '?ajax=search_asset&q=' + encodeURIComponent(q) + (IS_EDIT ? '&edit_ctx=1' : '');
+            const data = await fetch(url).then(r => r.json());
+            aList.innerHTML = '';
+            if (!data.length) {
+                const d = document.createElement('div');
+                d.className = 'dl-item';
+                d.style.color = 'var(--muted)';
+                d.textContent = IS_EDIT ? 'No assets found.' : 'No "In Stock" assets found for that search.';
+                aList.appendChild(d);
+                aList.classList.add('show');
+                return;
+            }
+            data.forEach(a => {
+                const d = document.createElement('div');
+                d.className = 'dl-item';
+                d.innerHTML = `<b>${a.description}</b>
+                    <small>${a.asset_category} · ${a.model || '—'} · SN: ${a.serial_number || '—'}
+                    · KES ${parseFloat(a.purchase_value || 0).toLocaleString()}
+                    ${a.asset_status ? '· <span style="color:var(--success)">' + a.asset_status + '</span>' : ''}</small>`;
+                d.onclick = () => {
+                    aSearch.value = a.description;
+                    document.getElementById('asset_id').value       = a.asset_id;
+                    document.getElementById('prev_cat').textContent    = a.asset_category    || '—';
+                    document.getElementById('prev_serial').textContent = a.serial_number     || '—';
+                    document.getElementById('prev_pv').textContent     = 'KES ' + parseFloat(a.purchase_value || 0).toLocaleString('en-KE', {minimumFractionDigits: 2});
+                    document.getElementById('assetPreview').classList.add('show');
+                    aList.classList.remove('show');
+                };
+                aList.appendChild(d);
+            });
+            aList.classList.add('show');
+        } catch(ex) { console.error('Asset search error', ex); }
+    }, 280);
+});
+document.addEventListener('click', e => { if (!aSearch.contains(e.target)) aList.classList.remove('show'); });
+
+// ── DEPARTMENT → hidden name ───────────────────────────────────────────────
+document.getElementById('department_id').addEventListener('change', function () {
+    const opt = this.options[this.selectedIndex];
+    document.getElementById('department_name').value = opt.dataset.name || opt.text;
 });
 
-document.getElementById('department_id').onchange = function() {
-    document.getElementById('department_name').value = this.options[this.selectedIndex].text;
-};
-
-// Form Submit
-document.getElementById('issuanceForm').onsubmit = async function(e) {
+// ── ISSUANCE FORM SUBMIT ───────────────────────────────────────────────────
+document.getElementById('issuanceForm').addEventListener('submit', async function (e) {
     e.preventDefault();
-    const btn = document.getElementById('saveBtn');
+    const assetId = document.getElementById('asset_id').value;
+    const facilId = document.getElementById('facility_id').value;
+    if (!assetId || assetId == 0) { showAlert('Please select an asset from the search results.', 'danger'); return; }
+    if (!facilId || facilId == 0) { showAlert('Please select a facility from the search results.', 'danger'); return; }
+
+    const btn  = document.getElementById('saveBtn');
     const spin = document.getElementById('saveSpinner');
-    btn.disabled = true; spin.classList.add('show');
+    btn.disabled = true;
+    spin.classList.add('show');
 
     try {
-        const fd = new FormData(this);
-        const r = await fetch(window.location.href, { method: 'POST', body: fd });
-        const text = await r.text();
+        const fd  = new FormData(this);
+        const raw = await fetch(window.location.pathname, { method: 'POST', body: fd });
+        const txt = await raw.text();
         let js;
-        try { js = JSON.parse(text); } catch(e) { throw new Error("Invalid Server Response"); }
+        try { js = JSON.parse(txt); } catch (_) { throw new Error('Server returned non-JSON: ' + txt.substring(0, 200)); }
 
         if (js.success) {
-            showAlert('Saved successfully! Redirecting...', 'success');
-            setTimeout(() => location.href = 'view_asset_issues.php', 1500);
+            showAlert('Issuance saved! Opening print certificate…', 'success');
+            setTimeout(() => {
+                window.open('print_issuance.php?invest_id=' + js.invest_id, '_blank');
+                if (js.action === 'insert') {
+                    this.reset();
+                    document.getElementById('asset_id').value    = '';
+                    document.getElementById('facility_id').value = '';
+                    document.getElementById('assetPreview').classList.remove('show');
+                    aSearch.value = '';
+                    fSearch.value = '';
+                }
+            }, 600);
         } else {
-            showAlert(js.error || 'Unknown error', 'danger');
+            showAlert('Error: ' + (js.error || 'Unknown error'), 'danger');
         }
-    } catch(err) {
-        showAlert(err.message, 'danger');
+    } catch (err) {
+        showAlert('Save failed — ' + err.message, 'danger');
+        console.error(err);
     } finally {
-        btn.disabled = false; spin.classList.remove('show');
+        btn.disabled = false;
+        spin.classList.remove('show');
     }
-};
+});
+
+// ── BULK IMPORT ────────────────────────────────────────────────────────────
+document.getElementById('importForm').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    const file = document.getElementById('importFile').files[0];
+    if (!file) { showAlert('Please select a file to import.', 'danger'); return; }
+
+    const btn  = document.getElementById('importBtn');
+    const spin = document.getElementById('importSpinner');
+    const res  = document.getElementById('importResult');
+    btn.disabled = true;
+    spin.classList.add('show');
+    res.style.display = 'none';
+
+    try {
+        const fd  = new FormData(this);
+        const raw = await fetch(window.location.pathname, { method: 'POST', body: fd });
+        const txt = await raw.text();
+        let js;
+        try { js = JSON.parse(txt); } catch (_) { throw new Error('Server returned non-JSON: ' + txt.substring(0, 300)); }
+
+        if (js.success) {
+            let html = `<div class="alert alert-success show" style="flex-direction:column;align-items:flex-start;gap:4px">
+                <strong><i class="fa fa-check-circle"></i> Import complete</strong>
+                <span>✅ Imported: <strong>${js.imported}</strong> &nbsp; ⏭ Skipped: <strong>${js.skipped}</strong></span>`;
+            if (js.errors && js.errors.length) {
+                html += `<details style="margin-top:6px;font-size:.8rem"><summary style="cursor:pointer;color:var(--danger)">
+                    ${js.errors.length} row issue(s) — click to view</summary><ul style="margin-top:6px;padding-left:18px">`;
+                js.errors.forEach(err => { html += `<li>${err}</li>`; });
+                html += `</ul></details>`;
+            }
+            html += `</div>`;
+            res.innerHTML = html;
+            res.style.display = 'block';
+            showAlert(`Import done: ${js.imported} records imported, ${js.skipped} skipped.`, 'success');
+        } else {
+            res.innerHTML = `<div class="alert alert-danger show"><i class="fa fa-exclamation-triangle"></i> ${js.error}</div>`;
+            res.style.display = 'block';
+            showAlert('Import error: ' + js.error, 'danger');
+        }
+    } catch (err) {
+        res.innerHTML = `<div class="alert alert-danger show"><i class="fa fa-exclamation-triangle"></i> ${err.message}</div>`;
+        res.style.display = 'block';
+        showAlert('Import failed — ' + err.message, 'danger');
+        console.error(err);
+    } finally {
+        btn.disabled = false;
+        spin.classList.remove('show');
+    }
+});
 </script>
 </body>
 </html>

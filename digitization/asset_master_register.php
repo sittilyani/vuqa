@@ -994,7 +994,7 @@ tbody td{padding:9px 12px;vertical-align:middle;}
              style="padding:5px 10px;font-size:11px">
             <i class="fas fa-edit"></i> Edit
           </a>
-          <a href="digital_innovation_investments.php?issue=<?= $a['asset_id'] ?>"
+          <a href="assets_issuance.php?issue=<?= $a['asset_id'] ?>"
              class="btn btn-green" style="padding:5px 10px;font-size:11px"
              title="Issue this asset to a facility">
             <i class="fas fa-paper-plane"></i> Issue
