@@ -434,6 +434,19 @@ if (!$isAllowed) {
                         </a>
                     </div>
                 </div>
+                <div class="nav-section">
+                    <div class="nav-section-title">LVCT Training Needs Assessment</div>
+                    <div class="nav-item">
+                        <a href="../tna_lvcthealth/index.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
+                            <img src="../assets/fontawesome/svgs-full/solid/users.svg" alt="" width="16" height="16" style="filter:invert(1)">
+                            TNA
+                        </a>
+                        <a href="../virtual_trainings/virtual_trainings_list.php" target="contentFrame" class="nav-link" onclick="handleNavClick()">
+                            <img src="../assets/fontawesome/svgs-full/solid/users.svg" alt="" width="16" height="16" style="filter:invert(1)">
+                            Training lists
+                        </a>
+                    </div>
+                </div>
 
                 <!-- Assets Section -->
                 <div class="nav-section">
